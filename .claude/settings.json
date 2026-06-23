@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$json = [Console]::In.ReadToEnd(); $obj = $json | ConvertFrom-Json; $fp = $obj.tool_input.file_path; if ($fp -and $fp -match 'CLAUDE\\.md$') { $dir = Split-Path $fp -Parent; Copy-Item $fp (Join-Path $dir 'agents.md') -Force } 2>$null",
+            "statusMessage": "Syncing agents.md..."
+          }
+        ]
+      }
+    ]
+  }
+}

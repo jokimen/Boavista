@@ -1,0 +1,40 @@
+# ─── Segredos / ambiente (NUNCA commitar) ───────────────────
+.env
+.env.*
+!.env*.example
+**/.env
+**/.env.*
+!**/.env*.example
+
+# WhatsApp (Baileys): sessão autenticada + segredo do cron
+waha/auth/
+waha/cron.json
+!waha/cron.json.example
+
+# ─── Dependências / build ───────────────────────────────────
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+build/
+*.tsbuildinfo
+.vercel
+
+# ─── Logs / temporários ─────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ─── Documentação sensível da API (contêm detalhes internos) ─
+# (manter fora do repo público; partilhar por canal privado se preciso)
+API.pdf
+API_extracted.txt
+app/vistas.pdf
+
+# ─── Relatórios de negócio / PDFs (PII + financeiro — NUNCA commitar) ─
+*.pdf
+
+# ─── SO ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

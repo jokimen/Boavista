@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "onStartup": true,
+  "schedule": "*/30 * * * *",
+  "heavySchedule": "30 9 * * *",
+  "timezone": "Europe/Lisbon",
+  "secret": "COLOCAR-AQUI-O-MESMO-VALOR-DE-CRON_SECRET",
+  "dailyUrl": "http://localhost:3000/api/cron/daily",
+  "heavyUrl": "http://localhost:3000/api/cron/heavy",
+  "brandHistoryUrl": "http://localhost:3000/api/cron/brand-history",
+  "alertsUrl": "http://localhost:3000/api/cron/alerts",
+  "_nota": "Copiar para cron.json (gitignored) e pôr o secret = CRON_SECRET do app/.env.local. onStartup dispara daily+heavy+brand-history+alertas ao ligar o PC. 'schedule' (frequente, */30) refresca só os agregados diários (leves). 'heavySchedule' (1x/dia) refresca as leituras pesadas: heavyUrl (stock/clientes/LC) e brandHistoryUrl (histórico por marca, 4 anos — para a Análise por Marca do Stock). Se 'heavySchedule' faltar, as pesadas caem no 'schedule' principal."
+}

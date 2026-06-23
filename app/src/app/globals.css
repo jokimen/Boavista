@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+/*
+ * TEMA — escuro (default) e claro. As cores NEUTRAS (fundos/texto/bordas) são
+ * tokens que INVERTEM consoante o tema: o `@theme` define o escuro e a regra
+ * `html.light` em baixo sobrepõe as MESMAS variáveis `--color-*` com valores
+ * claros. Como todas as utilities Tailwind (e os `var(--color-*)` usados nas
+ * strings dos gráficos) referenciam essas variáveis, trocar a classe `light`
+ * no <html> reformula a app inteira. As cores de MARCA/semânticas (azul/verde/
+ * vermelho/âmbar) ficam fixas (leem-se bem em ambos os fundos).
+ */
+@theme {
+  --color-bg-base: #0a0e1a;
+  --color-bg-card: #111827;
+  --color-bg-card-hover: #1a2235;
+  --color-bg-sidebar: #0d1424;
+  --color-bg-elevated: #0b1120;
+  --color-bg-input: #1f2937;
+  --color-border: #1f2937;
+  --color-border-subtle: #374151;
+
+  --color-text-primary: #f9fafb;
+  --color-text-secondary: #9ca3af;
+  --color-text-muted: #6b7280;
+  --color-text-strong: #d1d5db;
+
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-end: #8b5cf6;
+  --color-success: #10b981;
+  --color-success-bg: #064e3b;
+  --color-warning: #f59e0b;
+  --color-warning-bg: #78350f;
+  --color-danger: #ef4444;
+  --color-danger-bg: #7f1d1d;
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+/* Tema CLARO: sobrepõe só os neutros (os acentos de marca mantêm-se). */
+html.light {
+  --color-bg-base: #f3f4f6;
+  --color-bg-card: #ffffff;
+  --color-bg-card-hover: #f3f4f6;
+  --color-bg-sidebar: #ffffff;
+  --color-bg-elevated: #f9fafb;
+  --color-bg-input: #f3f4f6;
+  --color-border: #e5e7eb;
+  --color-border-subtle: #d1d5db;
+
+  --color-text-primary: #111827;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #6b7280;
+  --color-text-strong: #1f2937;
+
+  --color-success-bg: #d1fae5;
+  --color-warning-bg: #fef3c7;
+  --color-danger-bg: #fee2e2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Transição suave ao trocar de tema. */
+body, body * {
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-card);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ─── Loading neon (logo Opticalia) ─────────────────────────────────────────── */
+
+@keyframes neon-pulse {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 4px rgba(59, 130, 246, 0.7))
+      drop-shadow(0 0 12px rgba(59, 130, 246, 0.5))
+      drop-shadow(0 0 28px rgba(139, 92, 246, 0.35));
+    opacity: 0.92;
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 10px rgba(96, 165, 250, 0.95))
+      drop-shadow(0 0 26px rgba(59, 130, 246, 0.8))
+      drop-shadow(0 0 52px rgba(139, 92, 246, 0.6));
+    opacity: 1;
+  }
+}
+
+@keyframes neon-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes neon-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.neon-loader {
+  animation: neon-fade-in 0.2s ease-out;
+}
+
+.neon-logo {
+  animation: neon-pulse 1.6s ease-in-out infinite;
+}
+
+.neon-ring {
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  border-top-color: #3b82f6;
+  border-right-color: #8b5cf6;
+  animation: neon-ring-spin 1s linear infinite;
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.5);
+}
+
+/* Separador neon do menu lateral */
+.neon-divider {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.65), rgba(139, 92, 246, 0.65), transparent);
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.45);
+}

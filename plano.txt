@@ -1,0 +1,234 @@
+Cria uma aplicação web profissional para um dashboard administrativo de gestão de ótica, com foco em vendas, margem, stock, clientes, equipa, consultas e alertas operacionais.
+
+Requisitos técnicos obrigatórios:
+
+* Login administrativo seguro.
+* Login comercial seguro.
+* Autenticação de dois fatores com Google Authenticator/TOTP.
+* Dados sensíveis sempre protegidos.
+* Encriptação de dados críticos.
+* Nenhuma credencial, chave, token ou dado sensível exposto no código.
+* Separar configuração por variáveis de ambiente.
+* Aplicar boas práticas de segurança: hashing de passwords, sessões seguras, proteção CSRF/XSS/SQL injection, controlo de permissões e logs de acesso.
+* Código limpo, modular, escalável e documentado apenas onde necessário.
+* Interface responsiva, rápida, moderna e futurista.
+* Menu lateral esquerdo com navegação clara por módulos.
+* Dashboard com atualização em tempo real ou quase real.
+* Filtros globais por loja, data, colaborador e categoria.
+* Exportação para Excel e PDF.
+* Ligação preparada para base de dados externa do software atual.
+* backoffice superadmin para gestão de utilizadores, logs de erros, logs de audiotiria interna e sistema de permissões avançada a cada dashboard e a cada dados disponibilizado
+a esse utilizador. Superadmin pode gerar código de convite para registo, sendo obrigatório o mesmo no registo de um novo utilizador (código de convite, nome, email e password 
+obrigatório no registo). Após aceitação por parte do superadmin o mesmo deve definir as permissões dos mesmo no acesso aos dados.
+
+Estrutura principal da aplicação:
+
+1. Dashboard principal
+   Mostrar no topo os KPIs essenciais:
+
+* Vendas do dia.
+* Vendas do mês.
+* Margem bruta em euros.
+* Margem bruta em percentagem.
+* Ticket médio.
+* Número de vendas/encomendas.
+* Taxa de conversão.
+* Percentagem de cumprimento do objetivo mensal.
+* Comparação com mês anterior e ano anterior.
+
+Exemplo visual:
+“Vendas mês: 42.300 € | Objetivo: 55.000 € | Cumprimento: 77% | Margem: 58%”
+
+2. Alertas de gestão
+   Criar uma zona de “Atenção imediata” com alertas automáticos:
+
+* Vendas abaixo do esperado.
+* Margem abaixo do mínimo definido.
+* Encomendas atrasadas.
+* Vendas por entregar há mais de 15 dias.
+* Armações sem venda há mais de 180 dias.
+* Clientes com consulta realizada sem compra.
+* Orçamentos pendentes há mais de 3 dias.
+* Produtos vendidos com desconto excessivo.
+* Rutura de stock em lentes, contactologia e produtos mais vendidos.
+
+Exemplo:
+“Atenção: margem média hoje caiu para 42%, abaixo do mínimo definido de 50%.”
+
+Fazer o envio destes alertas por whatsapp
+
+3. Módulo de vendas por categoria
+   Criar gráficos e tabelas para:
+
+* Óculos graduados: vendas, margem e quantidade.
+* Lentes oftálmicas: tipo de lente, tratamento, marca e margem.
+* Armações: marca, modelo, rotação e margem.
+* Óculos de sol: sazonalidade, marcas e descontos.
+* Lentes de contacto: recorrência, clientes ativos e próximas compras.
+* Serviços/consultas: consultas realizadas e conversão em venda.
+
+4. Pipeline comercial
+   Mostrar funil comercial com:
+
+* Consultas marcadas.
+* Consultas realizadas.
+* Orçamentos emitidos.
+* Orçamentos aceites.
+* Encomendas em produção.
+* Prontas para entrega.
+* Entregues.
+
+Exemplo:
+Consultas marcadas: 18
+Consultas realizadas: 14
+Orçamentos emitidos: 11
+Orçamentos aceites: 7
+Encomendas em produção: 6
+Prontas para entrega: 4
+Entregues: 3
+
+5. Stock e rentabilidade
+   Criar módulo com:
+
+* Stock total em euros.
+* Capital empatado.
+* Stock por marca.
+* Produtos sem venda há 90, 180 e 365 dias.
+* Top produtos vendidos.
+* Produtos com maior margem.
+* Idade média do stock.
+* Top 100 artigos parados há mais tempo, incluindo custo, preço de venda e data da última venda.
+
+6. Clientes e fidelização
+   Criar módulo com:
+
+* Novos clientes no mês.
+* Clientes recorrentes.
+* Clientes inativos há 12, 18 e 24 meses.
+* Clientes com graduação antiga sem avaliação há mais de 3 anos.
+* Clientes com lentes de contacto prestes a acabar.
+* Aniversários e campanhas automáticas.
+* Valor médio por cliente.
+* Histórico de compras.
+* Taxa de recompra.
+* Clientes ativos vs clientes perdidos.
+* Tempo médio entre compras.
+* Valor vitalício do cliente.
+
+7. Equipa e desempenho comercial
+   Criar módulo com:
+
+* Vendas por colaborador.
+* Margem por colaborador.
+* Ticket médio por colaborador.
+* Descontos aplicados.
+* Orçamentos convertidos.
+* Produtos premium vendidos.
+
+8. Descontos e perda de margem
+   Criar análises para:
+
+* Total de descontos do dia e do mês.
+* Desconto médio por venda.
+* Descontos por colaborador.
+* Descontos por marca/produto.
+* Vendas abaixo da margem mínima.
+* Impacto real das campanhas na margem.
+
+9. Consultas e agenda
+   Criar módulo com:
+
+* Consultas marcadas hoje.
+* Consultas realizadas.
+* Faltas/no-shows.
+* Taxa de conversão de consulta em venda.
+* Receita média por consulta.
+* Ocupação por profissional.
+
+
+Organização do dashboard:
+A. Hoje
+
+* Vendas do dia.
+* Objetivo do dia.
+* Margem do dia.
+* Encomendas novas.
+* Consultas do dia.
+* Alertas urgentes.
+
+B. Mês
+
+* Vendas acumuladas.
+* Objetivo mensal.
+* Margem mensal.
+* Ticket médio.
+* Conversão.
+* Ranking por categoria.
+
+C. Operação
+
+* Encomendas em curso.
+* Atrasos.
+* Entregas previstas.
+* Stock crítico.
+* Reclamações abertas.
+
+D. Comercial
+
+* Orçamentos pendentes.
+* Consultas sem venda.
+* Clientes a contactar.
+* Campanhas ativas.
+* Desempenho da equipa.
+
+E. Gestão
+
+* Lucro bruto estimado.
+* Margem por categoria.
+* Stock parado.
+* Descontos.
+* Comparativos com períodos anteriores.
+
+Gráficos e interação:
+
+* Usar gráficos dinâmicos e interativos.
+* Ao clicar num gráfico, abrir detalhe contextual.
+* Exemplo: ao clicar em “Vendas mensais por vendedor”, mostrar:
+
+  * Ticket médio.
+  * Marca mais vendida.
+  * Número de vendas.
+  * Número de orçamentos.
+  * Orçamentos convertidos em venda.
+  * Marcas mais vendidas.
+  * Vendas entregues.
+  * Vendas por entregar.
+  
+API a usar: 
+
+* Waha
+* API do software próprio
+* Supabase
+* Aceito sugestões tuas de algo que possa ser importante
+* API resend
+
+Perguntas que o dashboard deve responder:
+
+* Quanto vendemos hoje?
+* Quanto vendemos este mês?
+* Estamos a cumprir o objetivo?
+* Estamos a ganhar margem ou apenas volume?
+* Que encomendas estão atrasadas?
+* Que oportunidades comerciais estão paradas?
+* Que stock está parado ou obsoleto?
+* Quem ou o quê precisa de ação imediata?
+
+Entrega esperada:
+
+* Criar arquitetura inicial da aplicação.
+* Criar layout completo com menu lateral.
+* Criar páginas/módulos principais.
+* Criar componentes reutilizáveis para KPIs, gráficos, tabelas, alertas e filtros.
+* Criar modelos de dados ou estrutura preparada para integração com base de dados real.
+* Usar dados mockados apenas quando necessário, mantendo o código pronto para ligação a dados reais.
+* Garantir que o projeto é seguro, organizado, rápido e preparado para evolução.

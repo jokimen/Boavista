@@ -1,0 +1,20 @@
+services:
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: opticalia-waha
+    restart: unless-stopped
+    # O dashboard usa a 3000 → expomos o WAHA na 3001 do host (WAHA escuta na 3000 dentro do container).
+    # Isto bate certo com WAHA_URL=http://localhost:3001 no app/.env.local
+    ports:
+      - "3001:3000"
+    volumes:
+      - waha-sessions:/app/.sessions
+    environment:
+      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+      - WAHA_PRINT_QR=false
+      # Se quiseres proteger o WAHA com chave, descomenta a linha abaixo
+      # e mete o MESMO valor em WAHA_API_KEY no app/.env.local:
+      # - WHATSAPP_API_KEY=troca-este-segredo
+
+volumes:
+  waha-sessions:

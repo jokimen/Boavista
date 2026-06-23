@@ -1,0 +1,19 @@
+{
+  "name": "opticalia-waha",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mini-servidor WhatsApp (Baileys) compativel com a API do WAHA usada pelo dashboard. Sem Docker.",
+  "scripts": {
+    "start": "node baileys-server.mjs"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "node-cron": "^3.0.3",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}
