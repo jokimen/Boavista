@@ -12,7 +12,7 @@ export function NeonLoader({ label = "A carregar…" }: { label?: string }) {
         {/* Anel neon a rodar à volta do logo */}
         <div className="neon-ring absolute h-36 w-36" />
         <Image
-          src="/logo.png"
+          src="/logo_boavista.png"
           alt="Opticalia Boavista"
           width={120}
           height={120}
