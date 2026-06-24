@@ -8,8 +8,9 @@ Executar dentro de `app/`:
 - `npm run dev` — servidor de desenvolvimento (Next 16 + Turbopack, porta 3000).
 - `npm run build` / `npm start` — produção.
 - `npm run lint` — ESLint. `npx tsc --noEmit` — type-check.
-- Migrações Supabase: `node scripts/apply-migrations.mjs 004_targets.sql 005_suppliers.sql`
-  (lê `DATABASE_URL` do `.env.local`; usa `pg` + Session pooler). Migrações **001–010 já aplicadas**.
+- Seed do superadmin: `node scripts/seed-superadmin.mjs <email> <password> ["Nome"]`
+  (lê `FIREBASE_*` do `.env.local`; cria o user no Firebase Auth + doc `profiles/{uid}`).
+  Deploy das regras Firestore: `firebase deploy --only firestore:rules` (projeto `boavista-83c05`).
 
 O `app/AGENTS.md` avisa: **este Next 16 tem breaking changes** — ler os docs em
 `node_modules/next/dist/docs/` antes de escrever código. A convenção é **`proxy.ts`**
@@ -18,7 +19,7 @@ O `app/AGENTS.md` avisa: **este Next 16 tem breaking changes** — ler os docs e
 ## Stack
 Next.js 16 (App Router, Turbopack) + TypeScript · Tailwind v4 (`@theme` em `globals.css`, **tema
 claro/escuro** — ver Convenções) ·
-shadcn-style UI · Recharts · Supabase (Auth + Postgres + RLS) · otplib v13 (2FA TOTP) ·
+shadcn-style UI · Recharts · Firebase (Auth + Firestore via Admin SDK) · otplib v13 (2FA TOTP) ·
 qrcode · Resend (email) · WAHA (WhatsApp) · xlsx + jspdf (export) · zod.
 
 ## Arquitetura
@@ -32,21 +33,25 @@ qrcode · Resend (email) · WAHA (WhatsApp) · xlsx + jspdf (export) · zod.
   2. **Visual Cloud OData (vistas `VX_*`)** — cliente `src/lib/api/odata-client.ts`, mapeamento
      `src/lib/api/odata-map.ts`. Doc `vistas.pdf` (em `app/`). É a fonte das funcionalidades novas
      (faturação, caixa, fornecedores, custo real das lentes, classe por linha). Ver secção OData.
-- **Auth/permissões**: Supabase Auth + RLS. Sessão em `src/lib/auth/session.ts`
-  (`getSession` + permissões efetivas), guard por módulo em `guard.ts`. Proxy (porta única) em
-  `src/lib/supabase/middleware.ts` (via `src/proxy.ts`). **16 módulos** (`ModuleKey`): dashboard,
+- **Auth/permissões**: Firebase Auth (login client SDK em `src/lib/firebase/client.ts`, guardado por
+  `typeof window`); a sessão é um **cookie HMAC próprio `of_session`** (`src/lib/auth/session-cookie.ts`),
+  NÃO os session cookies do Firebase. Dados de controlo via **Firestore (Admin SDK)** em
+  `src/lib/firebase/admin.ts` (`adminAuth`/`adminDb`). Sessão+permissões efetivas em
+  `src/lib/auth/session.ts` (`getSession`); helpers de API em `src/lib/auth/api-session.ts`
+  (`requireSuperadmin`/`getApiSession`/`getSessionIdentity`). Guard por módulo em `guard.ts`. Proxy
+  (porta única) via `src/proxy.ts`. **16 módulos** (`ModuleKey`): dashboard,
   hoje, mes, vendas, faturacao, caixa, pipeline, stock, clientes, equipa, descontos, consultas,
   operacao, fornecedores, alertas, admin.
 - **Alertas**: `src/lib/alerts/engine.ts` calcula **13 alertas** (operacionais + comerciais:
   recall clínico, cross-sell, attach de tratamentos) a partir do adapter. Janela de **2 meses**
-  para margem/descontos; objetivo de ritmo usa o objetivo mensal REAL do Supabase.
+  para margem/descontos; objetivo de ritmo usa o objetivo mensal REAL do Firestore.
 - **Filtros globais**: `src/lib/filters/range.ts` + `components/layout/GlobalFilters.tsx`
   (período/datas/colaborador/categoria via URL searchParams). `resolvePreviousRange` dá o período
   homólogo anterior (badges "vs período ant." nos KPIs — variação REAL, não hardcoded).
 - **⚠️ Fronteira server/client**: constantes/tipos que componentes CLIENTE precisam vivem em
   ficheiros próprios SEM `next/headers` (`lib/targets/constants.ts`, `lib/suppliers/constants.ts`).
-  Os `store.ts` (que importam `supabase/server`) têm `import "server-only"`. NUNCA importar um store
-  num `"use client"` — dá Build Error de `next/headers`.
+  Os `store.ts` (que importam o Admin SDK `firebase/admin`) têm `import "server-only"`. NUNCA importar
+  um store num `"use client"` — dá Build Error (Admin SDK / `next/headers` no cliente).
 
 ## API Visual — particularidades CRÍTICAS (validadas contra a API real)
 Config em `.env.local`: `VISUAL_API_URL=https://shop.tematicasoftware.com/api`,
@@ -189,72 +194,77 @@ texto com `pdf-parse` v2: `new PDFParse({data}).getText()`).
   (catálogo completo / janelas grandes / OData), recall clínico (Suspense próprio em Clientes),
   attach + cross-sell (Suspense próprios em Vendas).
 
-### Pré-cálculo no Supabase (a API Visual NÃO é batida a cada visita)
+### Pré-cálculo no Firestore (a API Visual NÃO é batida a cada visita)
 A API Visual é lenta e só está acessível depressa a partir do **PC da loja**; a Vercel está noutra
-região. Solução: o **PC da loja calcula e grava no Supabase**, a **Vercel só LÊ** (mesma região =
-instantâneo). Tudo via **service role** (a página já está protegida no proxy; agregados não-sensíveis).
-- **Snapshots por preset** (migração `007`, `dashboard_snapshots`): rota `POST /api/cron/precompute`
+região. Solução: o **PC da loja calcula e grava no Firestore**, a **Vercel só LÊ** (instantâneo).
+Tudo via **Admin SDK** (a página já está protegida no proxy; agregados não-sensíveis).
+- **Snapshots por preset** (coleção `dashboard_snapshots`): rota `POST /api/cron/precompute`
   (auth `CRON_SECRET` por `x-cron-key`/Bearer, `maxDuration=300`) pré-calcula os presets
   `today/week/month/last_month/quarter/year` via `visual-map` (sem o cache de 5 min do adapter) e faz
   upsert. Leitura: `src/lib/snapshots/store.ts` (`getSnapshot`/`saveSnapshot`).
-- **Agregados diários** (migração `008`, `daily_metrics`): rota `POST /api/cron/daily` constrói um
+- **Agregados diários** (coleção `daily_metrics`): rota `POST /api/cron/daily` constrói um
   resumo **aditivo por dia** (vendas, margem, por categoria, por colaborador). **Qualquer** intervalo
   (presets OU datas personalizadas 1–6 meses) = somar as linhas dos dias → instantâneo. Estratégia:
   mês atual + anterior recalculados sempre (apanha lançamentos atrasados); meses antigos só uma vez
   (backfill, do recente para o antigo). Lógica em `src/lib/snapshots/daily.ts`.
-- **Leituras pesadas sem datas** (migração `009`, `heavy_snapshots`): rota `POST /api/cron/heavy`
+- **Leituras pesadas sem datas** (coleção `heavy_snapshots`): rota `POST /api/cron/heavy`
   pré-calcula **stock** (catálogo + entradas), **clientes** e **clientes de LC** e faz upsert por
   chave (`stock`/`clients`/`contact_lens`). Leitura: `src/lib/snapshots/heavy.ts`
   (`getStockSnapshot`/`getClientsSnapshot`/`getContactLensSnapshot`); o adapter lê o snapshot e só
   cai no cálculo ao vivo (cacheado) se estiver vazio.
-- **Dedup de alertas WhatsApp** (migração `006`, `sent_alerts`): a rota `/api/cron/alerts` regista a
+- **Dedup de alertas WhatsApp** (coleção `sent_alerts`): a rota `/api/cron/alerts` regista a
   "impressão digital" de cada alerta já enviado para não repetir o mesmo todos os dias
-  (`src/lib/alerts/dedup.ts`). Acedido só pelo cron (service role).
+  (`src/lib/alerts/dedup.ts`). Acedido só pelo cron (Admin SDK).
 - Os crons correm **no arranque do PC da loja** (não em Vercel Cron — ver commit `15e65d2`).
   `app/vercel.json` fixa a região `dub1` (Europa).
 
 ## Segurança (relatório Codex — todos os 7 itens tratados)
-- **RLS** (migração `002`): trigger `protect_profile_columns` impede um utilizador de alterar
-  `role`/`is_active`/`email`; helper `is_superadmin()` SECURITY DEFINER (corrige recursão de RLS
-  que partia o login); `invite_codes` deixou de expor todos os códigos (RPC `is_valid_invite_code`).
+- **Acesso aos dados de controlo**: o SDK cliente do Firebase é usado SÓ para Firebase Auth; NUNCA lê/
+  escreve Firestore. As regras `firestore.rules` **negam todo o acesso direto do cliente**
+  (`allow read, write: if false`) — toda a leitura/escrita de `profiles`/`invite_codes`/etc. passa pelo
+  Admin SDK no servidor, que contorna as regras. Campos sensíveis (`role`/`is_active`/`email`) só são
+  alterados por rotas server-side com `requireSuperadmin`.
 - **Enforcement** no proxy (porta única): sessão → `is_active` → 2FA configurado → 2FA verificado
   nesta sessão (cookie httpOnly assinado HMAC `of_2fa`, segredo `TWOFA_COOKIE_SECRET`). Páginas
   redirect, `/api` 401/403. `getSession` reforça (defesa em profundidade).
-- **Registo por convite** (migração `003`): `/api/register` server-side com service role
-  (`SUPABASE_SERVICE_ROLE_KEY`) cria utilizador → consome código atomicamente (`consume_invite_code`)
-  → reverte se falhar. Desativar "sign up público" no Supabase Auth.
+- **Registo por convite**: `/api/register` server-side com Admin SDK cria o utilizador no Firebase Auth
+  → consome o código (doc `invite_codes/{código}`, transação) → reverte se falhar. O sign-up público
+  do Firebase Auth deve estar limitado (registo só por esta rota).
 - **API hardening** no proxy: CSRF (mutações de origem cruzada → 403), rate limit por IP
   (`lib/security/rate-limit.ts`), validação zod nas rotas de input.
 - Headers de segurança em `next.config.ts` (X-Frame-Options, HSTS, e **CSP completa**: default-src
-  self, object-src none, base-uri/form-action self, connect-src só self+Supabase; script/style
-  'unsafe-inline' por causa do Next sem nonces).
+  self, object-src none, base-uri/form-action self, connect-src self + endpoints Firebase
+  (Auth/Firestore/`googleapis.com`); script/style 'unsafe-inline' por causa do Next sem nonces).
 - Credenciais SÓ em `.env.local` (gitignored). NUNCA hardcode nem em scripts.
 
-## Supabase
-- Projeto ref `ocvbulzbhamewowqroge`, região eu-west-1. Anon key é formato novo `sb_publishable_…`.
-- **Direct connection (`db.*.supabase.co`) NÃO resolve em IPv4** → usar **Session pooler**
-  `aws-0-eu-west-1.pooler.supabase.com:5432`, user `postgres.ocvbulzbhamewowqroge`.
-- DDL/migrações só via Postgres direto (pooler) ou SQL Editor — a anon/service key NÃO faz DDL.
-- Reset da password da BD: SÓ no Dashboard (Settings→Database) — `ALTER ROLE` via SQL dá
-  "permission denied".
-- Migrações em `app/supabase/migrations/` (001 schema, 002 segurança, 003 registo, **004 objetivos**
-  = `monthly_targets`+`saude_ocular_products`, **005 fornecedores** = `supplier_config`, **006**
-  `sent_alerts` (dedup de WhatsApp), **007** `dashboard_snapshots`, **008** `daily_metrics` — ver
-  secção Performance), **009** `heavy_snapshots` (stock/clientes/LC pré-calculados),
-  **010** `aseguradora_config` (mapa código→nome de seguradora p/ relatórios), **011** `rappel_tiers`
-  (coluna jsonb em `supplier_config`: rappel escalonado por escalões de compra), **012** `totp_secrets`
-  (cofre dos segredos TOTP fora de `profiles`, sem RLS → só service role; apaga `profiles.totp_secret`),
-  **013** `audit_logs_insert` (insert só com `user_id = auth.uid()` — anti-forja),
-  **014** `employee_targets` (objetivos mensais POR VENDEDOR: ano/mês/usuario/€, RLS igual a `monthly_targets`).
-  **001–014 TODAS aplicadas** (011/012/013 aplicadas em 2026-06-15 via `scripts/apply-migrations.mjs`
-  após repor a password do pooler — ver [[supabase-pooler-workaround]]; `profiles.totp_secret` removida e
-  segredo migrado para `totp_secrets`). O código de 2FA é resiliente: lê do cofre com fallback à coluna
-  antiga (fallback já inerte, a coluna deixou de existir).
-- Superadmin bootstrapped manualmente; 1º login → `/2fa/setup` (TOTP).
+## Firebase
+A camada de controlo migrou de **Supabase → Firebase** (Auth + Firestore). Projeto `boavista-83c05`
+(`.firebaserc`). Os pacotes `@supabase/*` e `pg` foram removidos; as migrações SQL em
+`app/supabase/migrations/` são **histórico morto** (os números `00X` que aparecem nas secções acima
+são só referência histórica — hoje são **coleções Firestore com o mesmo nome**).
+- **Admin SDK** (`src/lib/firebase/admin.ts`, API modular `firebase-admin/app|auth|firestore`):
+  `adminAuth`/`adminDb`. Credenciais via `FIREBASE_PROJECT_ID`/`FIREBASE_CLIENT_EMAIL`/
+  `FIREBASE_PRIVATE_KEY` (service account; a private key no `.env.local` é uma linha com `\n` escapados,
+  o código faz `.replace(/\\n/g,"\n")`). Sem credenciais → fallback inócuo `mock-project-id`.
+- **SDK cliente** (`src/lib/firebase/client.ts`, `NEXT_PUBLIC_FIREBASE_*`): SÓ Firebase Auth, nunca
+  Firestore direto.
+- **Coleções Firestore**: `profiles` (com `permissions` array EMBUTIDO + flags `role`/`is_active`/
+  `totp_enabled`/`totp_verified`), `monthly_targets`/`employee_targets` (1 doc por `YYYY-MM`, campo por
+  categoria/usuario), `supplier_config` (inclui `rappel_tiers`), `aseguradora_config`,
+  `saude_ocular_products` + `config/saude_ocular_products.codes`, `invite_codes` (doc id = código),
+  `audit_logs`, `sent_alerts`, `totp_secrets` (cofre dos segredos TOTP, fora de `profiles`),
+  e os pré-cálculos `dashboard_snapshots`/`daily_metrics`/`heavy_snapshots` (ver Performance).
+- **Regras** `firestore.rules` negam todo o acesso direto do cliente (deploy:
+  `firebase deploy --only firestore:rules`). Índices em `firestore.indexes.json`.
+- **Auditoria**: `src/lib/auth/audit.ts` (`logAudit`) escreve em `audit_logs`.
+- **2FA TOTP** continua custom (otplib + cookie `of_2fa`); segredo no cofre `totp_secrets`.
+- **Superadmin**: criar com `node scripts/seed-superadmin.mjs <email> <password> ["Nome"]`
+  (cria no Auth + doc `profiles/{uid}` role=superadmin); 1º login → `/2fa/setup` (TOTP).
 
 ## Env vars (.env.local — ver .env.local.example)
-`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-`DATABASE_URL`, `TWOFA_COOKIE_SECRET`, `NEXT_PUBLIC_APP_URL`, `RESEND_*`, `WAHA_*`,
+`NEXT_PUBLIC_FIREBASE_*` (API_KEY/AUTH_DOMAIN/PROJECT_ID/STORAGE_BUCKET/MESSAGING_SENDER_ID/APP_ID),
+`FIREBASE_PROJECT_ID`/`FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY` (service account, Admin SDK),
+`TWOFA_COOKIE_SECRET`, `CRON_SECRET`, `NEXT_PUBLIC_APP_URL`, `RESEND_*`, `WAHA_*`,
 `ALERT_*` (limiares, incl. `ALERT_MIN_TREATMENT_PCT`), `VISUAL_*` (REST), **`ODATA_URL`/`ODATA_USER`/
 `ODATA_PASSWORD`** (OData), `USE_MOCK_DATA=false`.
 
@@ -279,19 +289,22 @@ instantâneo). Tudo via **service role** (a página já está protegida no proxy
   (+ `app/(dashboard)/loading.tsx`). Logo no sidebar, login e registo.
 
 ## Por configurar / pendente
-Estado do `.env.local` (verificado): `SUPABASE_SERVICE_ROLE_KEY`, `WAHA_URL`,
-`ALERT_WHATSAPP_NUMBER`, `RESEND_API_KEY`, `ODATA_*`, `VISUAL_*`, `CRON_SECRET` e `VERCEL_TOKEN`
-estão **preenchidos**. Em **produção** (Vercel + `dashboard.opticaliaboavista.pt`).
+Estado do `.env.local` (verificado): `NEXT_PUBLIC_FIREBASE_*`, `FIREBASE_PROJECT_ID/CLIENT_EMAIL/
+PRIVATE_KEY` (service account), `WAHA_URL`, `ALERT_WHATSAPP_NUMBER`, `RESEND_API_KEY`, `ODATA_*`,
+`VISUAL_*`, `CRON_SECRET` e `VERCEL_TOKEN` estão **preenchidos**. ⚠️ Os mesmos `FIREBASE_*` têm de
+estar também na **Vercel** (env de produção). Em **produção** (Vercel + `dashboard.opticaliaboavista.pt`).
+- ✅ **Superadmin criado** no Firebase (`jokimen24@gmail.com`); falta o 1º login + `/2fa/setup`.
 - ✅ **`WAHA_API_KEY` vazio é CORRETO** — verificado: a instância WAHA corre **aberta** (sem chave);
   `GET {WAHA_URL}/api/sessions` devolve 200 e a sessão `default` está `WORKING`. Não mexer.
-- ✅ **Sign-up público DESATIVADO** (`disable_signup: true`, aplicado via Management API
-  `PATCH …/config/auth`). Registo só por convite (service role) + trigger `handle_new_user`
-  (`is_active=false`) + proxy a bloquear inativos. Verificável em `GET {SUPABASE_URL}/auth/v1/settings`.
+- ⏳ **Sign-up público do Firebase Auth**: confirmar que está limitado (registo só pela rota
+  `/api/register` por convite, Admin SDK). Novos perfis nascem `is_active=false` + proxy bloqueia inativos.
 - ✅ **Credenciais Visual** completas e verificadas (login OK, token + dados reais). Dado como
   resolvido — a rotação da password era só higiene opcional, fica ao critério do dono.
-- ✅ **Higiene de segredos resolvida**: password da BD já rodada e atualizada no `.env.local`.
-- **Operacional (na UI, pelo dono)**: **44 fornecedores já pré-mapeados** por marca (14 oftálmicas /
-  12 LC+saúde / 18 armações+sol, via REST service role — ver `app/scripts/supplier_groups_premap.sql`).
+- ⏳ **Regras Firestore por publicar**: `firebase deploy --only firestore:rules` (negam acesso cliente).
+- **Operacional (na UI, pelo dono)**: o pré-mapeamento de **44 fornecedores** por marca (14 oftálmicas /
+  12 LC+saúde / 18 armações+sol) estava em `app/scripts/supplier_groups_premap.sql` (Supabase, histórico).
+  ⚠️ Com a migração para Firebase, confirmar se a coleção `supplier_config` no Firestore foi semeada;
+  se não, reconfigurar em Admin → Fornecedores.
   Falta: confirmar 3 marcados ⚠️ (Zeiss3/A.Winter, Indo, Seiko) e atribuir grupo aos restantes
   distribuidores PT genéricos (Admin → Fornecedores). 3 grupos: aros+sol JUNTOS (`armacoes_sol`).
   Definir também objetivos mensais (Admin → Objetivos — alimentam Dashboard, Hoje e alertas de ritmo).

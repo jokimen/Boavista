@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // A aplicação acede ao Firestore APENAS através do Admin SDK (lado servidor),
+    // que contorna estas regras. O SDK cliente é usado só para Firebase Auth, nunca
+    // para ler/escrever dados. Por isso negamos todo o acesso direto do cliente.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
