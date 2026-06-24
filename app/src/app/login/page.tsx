@@ -88,7 +88,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
-                  placeholder="email@opticalia.pt"
+                  placeholder="email@opticaboavista.com"
                   className="w-full bg-border border border-border-subtle rounded-lg text-text-primary placeholder-text-muted pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/50 focus:border-[#3b82f6] transition-colors"
                 />
               </div>

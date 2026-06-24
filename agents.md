@@ -292,7 +292,7 @@ são só referência histórica — hoje são **coleções Firestore com o mesmo
 Estado do `.env.local` (verificado): `NEXT_PUBLIC_FIREBASE_*`, `FIREBASE_PROJECT_ID/CLIENT_EMAIL/
 PRIVATE_KEY` (service account), `WAHA_URL`, `ALERT_WHATSAPP_NUMBER`, `RESEND_API_KEY`, `ODATA_*`,
 `VISUAL_*`, `CRON_SECRET` e `VERCEL_TOKEN` estão **preenchidos**. ⚠️ Os mesmos `FIREBASE_*` têm de
-estar também na **Vercel** (env de produção). Em **produção** (Vercel + `dashboard.opticaliaboavista.pt`).
+estar também na **Vercel** (env de produção). Em **produção** (Vercel + `www.opticaboavista.com`).
 - ✅ **Superadmin criado** no Firebase (`jokimen24@gmail.com`); falta o 1º login + `/2fa/setup`.
 - ✅ **`WAHA_API_KEY` vazio é CORRETO** — verificado: a instância WAHA corre **aberta** (sem chave);
   `GET {WAHA_URL}/api/sessions` devolve 200 e a sessão `default` está `WORKING`. Não mexer.

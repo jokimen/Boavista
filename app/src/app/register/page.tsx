@@ -140,7 +140,7 @@ export default function RegisterPage() {
                 <label className="block text-sm font-medium text-text-secondary mb-1.5">Email</label>
                 <div className="relative">
                   <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="email@opticalia.pt" className="w-full bg-border border border-border-subtle rounded-lg text-text-primary placeholder-text-muted pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/50 focus:border-[#3b82f6]" />
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="email@opticaboavista.com" className="w-full bg-border border border-border-subtle rounded-lg text-text-primary placeholder-text-muted pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#3b82f6]/50 focus:border-[#3b82f6]" />
                 </div>
               </div>
               <div>
