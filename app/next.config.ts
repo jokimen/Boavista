@@ -37,6 +37,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // O firebase-admin (via jwks-rsa) carrega o 'jose' (ESM-only) por import dinâmico.
+  // Se o Turbopack o "externalizar" via require(), rebenta com ERR_REQUIRE_ESM no
+  // runtime da Vercel. Marcá-lo como server external faz o Node carregá-lo nativamente.
+  serverExternalPackages: ["firebase-admin"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
