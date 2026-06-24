@@ -59,6 +59,9 @@ export async function updateSession(request: NextRequest) {
   const is2faPage = pathname.startsWith("/2fa");
   const isLogout = pathname.startsWith("/api/auth/logout");
   const isInviteValidate = pathname.startsWith("/api/invite/validate");
+  // Rota que CRIA a sessão (valida o ID token do Firebase e grava o cookie):
+  // tem de ser acessível sem sessão prévia (senão o login nunca consegue entrar).
+  const isSessionCreate = pathname.startsWith("/api/auth/session");
 
   const redirectTo = (path: string) => {
     const url = request.nextUrl.clone();
@@ -69,7 +72,7 @@ export async function updateSession(request: NextRequest) {
 
   // ── 1) No session ──────────────────────────────────────────────────
   if (!session) {
-    if (isLoginRegister || isInviteValidate) return response;
+    if (isLoginRegister || isInviteValidate || isSessionCreate) return response;
     if (isApi) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     return redirectTo("/login");
   }

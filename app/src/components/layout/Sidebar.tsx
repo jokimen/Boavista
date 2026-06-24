@@ -87,7 +87,7 @@ export function Sidebar({ userName, userRole, isSuperAdmin, allowedModules }: Si
         compact ? "justify-center" : "gap-3"
       )}>
         <Image
-          src="/logo.png"
+          src="/logo_boavista.png"
           alt="Opticalia Boavista"
           width={28}
           height={28}

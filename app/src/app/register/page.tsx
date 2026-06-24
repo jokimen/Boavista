@@ -82,7 +82,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <Image
-            src="/logo.png"
+            src="/logo_boavista.png"
             alt="Opticalia Boavista"
             width={72}
             height={72}
