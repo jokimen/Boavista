@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { SESSION_COOKIE, signSession, sessionCookieOptions } from "@/lib/auth/session-cookie";
 
 /**
@@ -17,22 +18,12 @@ export async function POST(request: Request) {
   const { idToken } = body;
   if (!idToken) return NextResponse.json({ error: "Token em falta" }, { status: 400 });
 
-  // TEMP DEBUG: import dinâmico + captura de erro real
-  let adminAuth, adminDb;
-  try {
-    const mod = await import("@/lib/firebase/admin");
-    adminAuth = mod.adminAuth;
-    adminDb = mod.adminDb;
-  } catch (e: unknown) {
-    return NextResponse.json({ error: "ADMIN_IMPORT: " + String((e as Error)?.stack || e) }, { status: 599 });
-  }
-
   // Verify the Firebase ID token
-  let decoded;
+  let decoded: Awaited<ReturnType<typeof adminAuth.verifyIdToken>>;
   try {
     decoded = await adminAuth.verifyIdToken(idToken);
-  } catch (e: unknown) {
-    return NextResponse.json({ error: "VERIFY: " + String((e as Error)?.message || e) }, { status: 598 });
+  } catch {
+    return NextResponse.json({ error: "Token inválido" }, { status: 401 });
   }
 
   // Read profile from Firestore
@@ -41,8 +32,8 @@ export async function POST(request: Request) {
   try {
     const doc = await adminDb.collection("profiles").doc(decoded.uid).get();
     if (doc.exists) profile = (doc.data() ?? null) as ProfileShape | null;
-  } catch (e: unknown) {
-    return NextResponse.json({ error: "FIRESTORE: " + String((e as Error)?.message || e) }, { status: 597 });
+  } catch {
+    return NextResponse.json({ error: "Erro ao carregar perfil" }, { status: 500 });
   }
 
   if (!profile?.is_active) {
