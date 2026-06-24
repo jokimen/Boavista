@@ -13,7 +13,7 @@ export function NeonLoader({ label = "A carregar…" }: { label?: string }) {
         <div className="neon-ring absolute h-36 w-36" />
         <Image
           src="/logo_boavista.png"
-          alt="Opticalia Boavista"
+          alt="Óptica Boavista"
           width={120}
           height={120}
           priority

@@ -59,7 +59,7 @@ sobe **App + WAHA** em background. Para correr no teu login, cria um atalho na p
 2. Cria aí um ficheiro `OpticaliaDashboard.cmd` com:
    ```bat
    @echo off
-   powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "F:\Claude\claude_code\Dashboard OpticaliaBoavista\start-all.ps1"
+   powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "F:\Claude\claude_code\Dashboard Óptica Boavista\start-all.ps1"
    ```
 Assim, ao ligar o PC, ambos arrancam sozinhos. (Não foi criado automaticamente por segurança —
 ativa-o só se quiseres este comportamento.)

@@ -1,4 +1,4 @@
-# Deploy — Dashboard Opticalia Boavista
+# Deploy — Dashboard Óptica Boavista
 
 ## Arquitetura
 

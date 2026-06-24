@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Registo por convite (atómico, server-side)
+-- Óptica Boavista — Registo por convite (atómico, server-side)
 -- Executar em: Supabase → SQL Editor (depois de 002_security_hardening.sql)
 -- ============================================================
 

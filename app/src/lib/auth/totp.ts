@@ -19,5 +19,5 @@ export function verifyTotpToken(token: string, secret: string): boolean {
 }
 
 export function getTotpUri(email: string, secret: string): string {
-  return generateURI({ secret, label: email, issuer: "Opticalia Boavista" });
+  return generateURI({ secret, label: email, issuer: "Óptica Boavista" });
 }

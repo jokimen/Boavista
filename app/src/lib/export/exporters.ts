@@ -47,7 +47,7 @@ export function exportToPdf(title: string, columns: ExportColumn[], rows: Row[])
   doc.text(title, 14, 16);
   doc.setFontSize(9);
   doc.setTextColor(120);
-  doc.text(`Opticalia Boavista · ${new Date().toLocaleString("pt-PT")}`, 14, 22);
+  doc.text(`Óptica Boavista · ${new Date().toLocaleString("pt-PT")}`, 14, 22);
   autoTable(doc, {
     startY: 28,
     head: [columns.map((c) => c.label)],

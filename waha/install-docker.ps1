@@ -2,7 +2,7 @@
 # CORRER COMO ADMINISTRADOR. Pode pedir reinicio a meio.
 #
 # Atalho para lancar elevado (numa PowerShell normal):
-#   Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy Bypass -File "F:\Claude\claude_code\Dashboard OpticaliaBoavista\waha\install-docker.ps1"'
+#   Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy Bypass -File "F:\Claude\claude_code\Dashboard Óptica Boavista\waha\install-docker.ps1"'
 
 $ErrorActionPreference = "Stop"
 

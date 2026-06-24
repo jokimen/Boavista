@@ -88,7 +88,7 @@ export function Sidebar({ userName, userRole, isSuperAdmin, allowedModules }: Si
       )}>
         <Image
           src="/logo_boavista.png"
-          alt="Opticalia Boavista"
+          alt="Óptica Boavista"
           width={28}
           height={28}
           priority

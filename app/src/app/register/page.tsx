@@ -83,14 +83,14 @@ export default function RegisterPage() {
         <div className="flex flex-col items-center mb-8">
           <Image
             src="/logo_boavista.png"
-            alt="Opticalia Boavista"
+            alt="Óptica Boavista"
             width={72}
             height={72}
             priority
             className="rounded-2xl mb-4"
             style={{ filter: "drop-shadow(0 0 12px rgba(59,130,246,0.4))" }}
           />
-          <h1 className="text-xl font-bold text-text-primary">Opticalia Boavista</h1>
+          <h1 className="text-xl font-bold text-text-primary">Óptica Boavista</h1>
         </div>
 
         <div className="bg-bg-card border border-border rounded-2xl p-6">

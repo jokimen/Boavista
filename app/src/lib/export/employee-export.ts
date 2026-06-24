@@ -59,7 +59,7 @@ export async function exportEmployeeExcel(payload: EmployeeExportPayload) {
   resumo.getCell("A1").value = `Análise do vendedor — ${name}`;
   resumo.getCell("A1").font = { bold: true, size: 14 };
   resumo.mergeCells("A2:E2");
-  resumo.getCell("A2").value = `Opticalia Boavista · ${periodLabel} · comparação com o ano anterior`;
+  resumo.getCell("A2").value = `Óptica Boavista · ${periodLabel} · comparação com o ano anterior`;
   resumo.getCell("A2").font = { color: { argb: "FF6B7280" }, size: 10 };
   resumo.addRow([]);
   resumo.addRow(["Métrica", "Unidade", "Atual", "Ano anterior", "Variação"]);
@@ -99,7 +99,7 @@ export function exportEmployeePdf(payload: EmployeeExportPayload) {
   doc.text(`Análise do vendedor — ${name}`, 14, 16);
   doc.setFontSize(9);
   doc.setTextColor(120);
-  doc.text(`Opticalia Boavista · ${periodLabel} · comparação com o ano anterior`, 14, 22);
+  doc.text(`Óptica Boavista · ${periodLabel} · comparação com o ano anterior`, 14, 22);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jspdf-autotable anexa lastAutoTable em runtime
   const lastY = () => (doc as any).lastAutoTable?.finalY ?? 28;

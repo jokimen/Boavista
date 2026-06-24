@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Objetivos mensais + produtos "saúde ocular"
+-- Óptica Boavista — Objetivos mensais + produtos "saúde ocular"
 -- Executar em: Supabase → SQL Editor (depois de 002 e 003)
 -- ============================================================
 

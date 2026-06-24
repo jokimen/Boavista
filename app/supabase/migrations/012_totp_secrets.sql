@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Segredos TOTP fora de `profiles` (auditoria Codex #3)
+-- Óptica Boavista — Segredos TOTP fora de `profiles` (auditoria Codex #3)
 -- O segredo deixava-se ler por RLS (o próprio utilizador podia recuperá-lo).
 -- Passa para `totp_secrets` SEM policies → só a service role lhe acede.
 -- Executar em: Supabase → SQL Editor (DDL não passa pela service role/pooler).

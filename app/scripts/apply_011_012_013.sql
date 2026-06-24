@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Migrações 011 + 012 + 013 (colar de uma vez no SQL Editor)
+-- Óptica Boavista — Migrações 011 + 012 + 013 (colar de uma vez no SQL Editor)
 -- 011 rappel_tiers · 012 totp_secrets · 013 audit_logs_insert
 -- ============================================================
 

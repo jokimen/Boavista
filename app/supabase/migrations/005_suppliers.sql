@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Config de fornecedores (grupo, objetivo de compra, rappel)
+-- Óptica Boavista — Config de fornecedores (grupo, objetivo de compra, rappel)
 -- Executar em: Supabase → SQL Editor (depois de 004)
 -- ============================================================
 

@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Pré-mapeamento de fornecedores → grupo
+-- Óptica Boavista — Pré-mapeamento de fornecedores → grupo
 -- Só marcas reconhecidas com confiança. Os distribuidores portugueses
 -- genéricos e entradas não-produto ficam DE FORA (decidir no Admin).
 -- Grupos: 'oftalmicas' | 'contacto_saude' | 'armacoes_sol'

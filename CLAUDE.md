@@ -1,6 +1,6 @@
-# Dashboard OpticaliaBoavista
+# Dashboard Óptica Boavista
 
-Dashboard de gestão para a ótica **Opticalia Boavista** (1 loja, sem multi-store).
+Dashboard de gestão para a ótica **Óptica Boavista** (1 loja, sem multi-store).
 A aplicação Next.js vive em **`app/`** (não na raiz). Trabalhar sempre dentro de `app/`.
 
 ## Development Commands

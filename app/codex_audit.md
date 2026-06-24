@@ -1,6 +1,6 @@
 # Auditoria de Segurança Codex
 
-Projeto: Dashboard Opticalia Boavista  
+Projeto: Dashboard Óptica Boavista  
 Data da auditoria: 2026-06-13  
 Modo: auditoria read-only, sem alterações de código aplicadas durante a análise.
 

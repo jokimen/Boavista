@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Rappel escalonado por escalões de compra
+-- Óptica Boavista — Rappel escalonado por escalões de compra
 -- Cada fornecedor pode ter vários patamares {min €, %}; a % do patamar mais
 -- alto atingido pelas compras aplica-se ao TOTAL.
 -- Executar em: Supabase → SQL Editor (depois de 005). DDL não passa pela service role.

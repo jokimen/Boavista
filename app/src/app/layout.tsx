@@ -7,8 +7,8 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Opticalia Boavista — Dashboard",
-  description: "Dashboard de gestão Opticalia Boavista",
+  title: "Óptica Boavista — Dashboard",
+  description: "Dashboard de gestão Óptica Boavista",
 };
 
 // Aplica o tema guardado ANTES da hidratação (evita flash claro→escuro).

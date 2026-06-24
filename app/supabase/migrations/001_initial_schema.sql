@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista Dashboard — Schema inicial
+-- Óptica Boavista Dashboard — Schema inicial
 -- Executar em: Supabase → SQL Editor
 -- ============================================================
 

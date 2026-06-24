@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Objetivos mensais POR VENDEDOR
+-- Óptica Boavista — Objetivos mensais POR VENDEDOR
 -- Executar em: Supabase → SQL Editor OU scripts/apply-migrations.mjs
 -- ============================================================
 

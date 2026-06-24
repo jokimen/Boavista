@@ -1,5 +1,5 @@
 -- ============================================================
--- Opticalia Boavista — Hardening de segurança (RLS)
+-- Óptica Boavista — Hardening de segurança (RLS)
 -- Executar em: Supabase → SQL Editor (depois de 001_initial_schema.sql)
 --
 -- Corrige escalada de privilégios: a policy original `profiles_update`
