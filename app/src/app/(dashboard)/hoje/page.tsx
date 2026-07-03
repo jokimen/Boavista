@@ -5,6 +5,7 @@ import { KpiCard } from "@/components/kpi/KpiCard";
 import { AlertPanel } from "@/components/alerts/AlertPanel";
 import { DataTable } from "@/components/tables/DataTable";
 import { fetchAlerts, fetchSalesSummary, fetchAppointments } from "@/lib/api/adapter";
+import { getRangeMetrics } from "@/lib/snapshots/daily";
 import { getMonthlyTargets } from "@/lib/targets/store";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, marginIfCovered } from "@/lib/utils";
@@ -40,9 +41,15 @@ export default async function HojePage() {
   const startTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   const startYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
 
+  // Vendas de hoje/ontem: agregados diários do Firestore (instantâneo); fallback ao
+  // vivo se o snapshot ainda não cobrir o dia. As consultas (agenda) não têm snapshot.
+  const [rToday, rYesterday] = await Promise.all([
+    getRangeMetrics(startToday.toISOString(), startTomorrow.toISOString()).catch(() => null),
+    getRangeMetrics(startYesterday.toISOString(), startToday.toISOString()).catch(() => null),
+  ]);
   const [summary, yesterday, appointments, targets] = await Promise.all([
-    fetchSalesSummary(startToday.toISOString(), startTomorrow.toISOString()),
-    fetchSalesSummary(startYesterday.toISOString(), startToday.toISOString()),
+    rToday?.summary ?? fetchSalesSummary(startToday.toISOString(), startTomorrow.toISOString()),
+    rYesterday?.summary ?? fetchSalesSummary(startYesterday.toISOString(), startToday.toISOString()),
     fetchAppointments(todayStr, todayStr),
     getMonthlyTargets(now.getFullYear(), now.getMonth() + 1),
   ]);

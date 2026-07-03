@@ -10,6 +10,7 @@ import { CrossSellTable } from "./CrossSellTable";
 import { MonthlyReportButton } from "./MonthlyReportButton";
 import { parseFilters, resolveDateRange, resolvePreviousRange } from "@/lib/filters/range";
 import { fetchSalesSummary, fetchSalesByCategory, fetchSalesByEmployee, fetchEmployees, fetchTopBrands, fetchCrossSell, fetchSecondPairSales, fetchTreatmentAttach } from "@/lib/api/adapter";
+import { getRangeMetrics } from "@/lib/snapshots/daily";
 import { getSaudeOcularCodes } from "@/lib/targets/store";
 import { ExportData } from "@/components/tables/ExportData";
 import { canExport } from "@/lib/auth/permissions";
@@ -29,9 +30,14 @@ async function FiltersBar() {
 
 // KPIs de vendas/margem (summary atual vs período anterior). Margem só com cobertura ≥80%.
 async function KpisSection({ from, to, prevFrom, prevTo, prevLabel }: { from: string; to: string; prevFrom: string; prevTo: string; prevLabel: string }) {
+  // Agregados diários do Firestore (instantâneo); fallback ao vivo se não cobrir os dias.
+  const [rCur, rPrev] = await Promise.all([
+    getRangeMetrics(from, to).catch(() => null),
+    getRangeMetrics(prevFrom, prevTo).catch(() => null),
+  ]);
   const [summary, prevSummary] = await Promise.all([
-    fetchSalesSummary(from, to),
-    fetchSalesSummary(prevFrom, prevTo),
+    rCur?.summary ?? fetchSalesSummary(from, to),
+    rPrev?.summary ?? fetchSalesSummary(prevFrom, prevTo),
   ]);
   const covered = marginIfCovered(summary.margin_pct, summary.cobertura_pct) !== null;
   return (
@@ -49,8 +55,9 @@ async function KpisSection({ from, to, prevFrom, prevTo, prevLabel }: { from: st
 }
 
 async function CategorySection({ from, to, category }: { from: string; to: string; category: string | null }) {
-  const saudeCodes = await getSaudeOcularCodes();
-  const all = await fetchSalesByCategory(from, to, saudeCodes);
+  // Agregados diários do Firestore (instantâneo); fallback ao vivo se não cobrir os dias.
+  const ranged = await getRangeMetrics(from, to).catch(() => null);
+  const all = ranged?.byCategory ?? await fetchSalesByCategory(from, to, await getSaudeOcularCodes());
   const byCategory = category ? all.filter((c) => c.category === category) : all;
   return (
     <div className="rounded-xl bg-bg-card border border-border p-4">

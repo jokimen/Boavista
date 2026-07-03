@@ -7,13 +7,15 @@ import { CategoryBarChart } from "@/components/charts/CategoryBarChart";
 import { ChartInfo } from "@/components/charts/ChartInfo";
 import { DataTable } from "@/components/tables/DataTable";
 import { fetchSalesSummary, fetchSalesTrend, fetchSalesByCategory, fetchSalesByEmployee } from "@/lib/api/adapter";
+import { getRangeMetrics, getSalesTrend } from "@/lib/snapshots/daily";
 import { getSaudeOcularCodes } from "@/lib/targets/store";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatPercent, pctChange, marginIfCovered } from "@/lib/utils";
 
 // Evolução vs ano anterior (2 períodos: ex. 2026 vs 2025) — em Suspense para não bloquear a página.
+// Snapshot diário do Firestore (instantâneo); só cai no cálculo ao vivo se não houver dias.
 async function TrendSection({ from, to }: { from: string; to: string }) {
-  const trend = await fetchSalesTrend(from, to);
+  const trend = (await getSalesTrend(from, to)) ?? (await fetchSalesTrend(from, to));
   return <SalesLineChart data={trend} />;
 }
 
@@ -26,11 +28,18 @@ export default async function MesPage() {
   const prevFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split("T")[0];
   const prevTo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate()).toISOString().split("T")[0];
 
+  // Agregados diários do Firestore (instantâneo) para o intervalo; fallback ao vivo
+  // se o snapshot não cobrir os dias. byEmployee usa campos ricos (objetivos/orçamentos)
+  // que o snapshot diário não guarda → fica sempre ao vivo.
   const saudeCodes = getSaudeOcularCodes();
+  const [ranged, rangedPrev] = await Promise.all([
+    getRangeMetrics(from, to).catch(() => null),
+    getRangeMetrics(prevFrom, prevTo).catch(() => null),
+  ]);
   const [summary, prevSummary, byCategory, byEmployee] = await Promise.all([
-    fetchSalesSummary(from, to),
-    fetchSalesSummary(prevFrom, prevTo),
-    saudeCodes.then((codes) => fetchSalesByCategory(from, to, codes)),
+    ranged?.summary ?? fetchSalesSummary(from, to),
+    rangedPrev?.summary ?? fetchSalesSummary(prevFrom, prevTo),
+    ranged?.byCategory ?? saudeCodes.then((codes) => fetchSalesByCategory(from, to, codes)),
     fetchSalesByEmployee(from, to),
   ]);
 
