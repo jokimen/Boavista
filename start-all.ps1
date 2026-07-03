@@ -1,4 +1,4 @@
-# Arranca os dois servidores do Dashboard Opticalia em background (sem janelas):
+# Arranca os dois servidores do Dashboard Óptica Boavista em background (sem janelas):
 #   1) WAHA/Baileys (WhatsApp + agendador de alertas) na porta 3001
 #   2) App Next.js na porta 3000
 # Logs em logs\. Idempotente: nao duplica se a porta ja estiver ocupada.

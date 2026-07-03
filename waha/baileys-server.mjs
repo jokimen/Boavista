@@ -68,7 +68,7 @@ async function start() {
     },
     logger,
     printQRInTerminal: false,
-    browser: ["Opticalia Dashboard", "Chrome", "1.0.0"],
+    browser: ["Óptica Boavista", "Chrome", "1.0.0"],
   });
 
   sock.ev.on("creds.update", saveCreds);
@@ -151,7 +151,7 @@ function statusPage() {
     inner = `<h1>A iniciar...</h1><p>Estado: <code>${connState}</code>. Aguarda o QR.</p>`;
   }
   return `<!doctype html><html lang="pt"><head><meta charset="utf-8">${refresh}
-    <title>Opticalia WAHA (Baileys)</title>
+    <title>Óptica Boavista WAHA (Baileys)</title>
     <style>body{font-family:system-ui,sans-serif;background:#0b0b0f;color:#eee;
       display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}
       div{max-width:420px;padding:24px} code{background:#1c1c25;padding:2px 6px;border-radius:4px}

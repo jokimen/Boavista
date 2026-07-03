@@ -35,6 +35,13 @@ app/vistas.pdf
 # ─── Relatórios de negócio / PDFs (PII + financeiro — NUNCA commitar) ─
 *.pdf
 
+# ─── Screenshots de credenciais (contêm passwords — NUNCA commitar) ─
+API_Boavista.png
+*_credenciais*.png
+
 # ─── SO ─────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+.vercel
+.env*

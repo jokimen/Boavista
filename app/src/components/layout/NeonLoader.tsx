@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 /**
- * Ecrã de carregamento com o logo Opticalia em efeito neon.
+ * Ecrã de carregamento com o logo Óptica Boavista em efeito neon.
  * Usado como fallback de Suspense (loading.tsx) ao mudar de página / carregar
  * dados, e pode ser reutilizado em qualquer estado de loading.
  */

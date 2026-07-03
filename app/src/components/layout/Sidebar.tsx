@@ -97,7 +97,7 @@ export function Sidebar({ userName, userRole, isSuperAdmin, allowedModules }: Si
         />
         {!compact && (
           <div className="min-w-0">
-            <p className="text-xs font-bold text-text-primary truncate">Opticalia</p>
+            <p className="text-xs font-bold text-text-primary truncate">Óptica</p>
             <p className="text-[10px] text-text-muted truncate">Boavista</p>
           </div>
         )}

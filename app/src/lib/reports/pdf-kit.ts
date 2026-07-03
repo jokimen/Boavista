@@ -1,5 +1,5 @@
 /**
- * Design system de PDF — réplica do template dos relatórios Opticalia.
+ * Design system de PDF — réplica do template dos relatórios Óptica Boavista.
  *
  * Cliente-side (jsPDF corre no browser). Sem imports de servidor. Fornece
  * primitivas reutilizáveis que desenham as páginas tal como nos modelos:

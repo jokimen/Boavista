@@ -1,7 +1,7 @@
 import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.RESEND_FROM ?? "dashboard@opticalia-boavista.pt";
+const FROM = process.env.RESEND_FROM ?? "dashboard@opticaboavista.com";
 
 export async function sendInviteEmail(to: string, code: string): Promise<boolean> {
   try {
@@ -28,7 +28,7 @@ export async function sendApprovalEmail(to: string, name: string): Promise<boole
     await resend.emails.send({
       from: FROM,
       to,
-      subject: "A tua conta foi aprovada — Dashboard Opticalia",
+      subject: "A tua conta foi aprovada — Dashboard Óptica Boavista",
       html: `
         <h2>Olá ${name}!</h2>
         <p>A tua conta no Dashboard Óptica Boavista foi aprovada.</p>
@@ -47,7 +47,7 @@ export async function sendRejectionEmail(to: string, name: string): Promise<bool
     await resend.emails.send({
       from: FROM,
       to,
-      subject: "Pedido de registo — Dashboard Opticalia",
+      subject: "Pedido de registo — Dashboard Óptica Boavista",
       html: `
         <h2>Olá ${name},</h2>
         <p>O teu pedido de registo no Dashboard Óptica Boavista não foi aprovado.</p>

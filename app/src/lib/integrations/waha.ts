@@ -37,11 +37,11 @@ export function isWahaConfigured(): boolean {
 export async function sendAlert(message: string): Promise<boolean> {
   if (!ALERT_PHONE) return false;
   const chatId = ALERT_PHONE.includes("@") ? ALERT_PHONE : `${ALERT_PHONE}@c.us`;
-  return sendMessage({ chatId, text: `⚠️ *Opticalia Dashboard*\n\n${message}` });
+  return sendMessage({ chatId, text: `⚠️ *Óptica Boavista*\n\n${message}` });
 }
 
 export async function sendDailySummary(summary: string): Promise<boolean> {
   if (!ALERT_PHONE) return false;
   const chatId = ALERT_PHONE.includes("@") ? ALERT_PHONE : `${ALERT_PHONE}@c.us`;
-  return sendMessage({ chatId, text: `📊 *Resumo diário Opticalia*\n\n${summary}` });
+  return sendMessage({ chatId, text: `📊 *Resumo diário Óptica Boavista*\n\n${summary}` });
 }
