@@ -33,8 +33,16 @@ export interface DecryptedSession {
 export function verifySession(value: string | undefined): DecryptedSession | null {
   if (!value || !secret()) return null;
   const parts = value.split(".");
-  if (parts.length !== 6) return null;
-  const [uid, email, activeStr, totpStr, expStr, mac] = parts;
+  // payload = uid.email.active.totp.exp.mac — o EMAIL pode conter pontos
+  // (ex. "gmail.com"), por isso reconstrói-se a partir das pontas: o userId do
+  // Firebase e os campos active/totp/exp/mac não têm pontos.
+  if (parts.length < 6) return null;
+  const mac = parts[parts.length - 1];
+  const expStr = parts[parts.length - 2];
+  const totpStr = parts[parts.length - 3];
+  const activeStr = parts[parts.length - 4];
+  const uid = parts[0];
+  const email = parts.slice(1, parts.length - 4).join(".");
   const exp = Number(expStr);
   if (!Number.isFinite(exp) || exp < Date.now()) return null;
   const expected = hmac(`${uid}.${email}.${activeStr}.${totpStr}.${expStr}`);
