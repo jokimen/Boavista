@@ -902,9 +902,14 @@ function orderStatusFromLines(v: VisualVenta): OrderStatus {
   return "orcamento_aceite";
 }
 
+// O Pipeline só considera encomendas/consultas a partir desta data (decisão do dono).
+// Piso fixo — encomendas pendentes/atrasadas do início de 2026 não desaparecem por
+// caírem fora de uma janela móvel de 3 meses.
+const PIPELINE_SINCE = new Date(2026, 0, 1);
+
 export async function pipeline(): Promise<PipelineStage[]> {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 2, 1); // últimos ~3 meses
+  const start = PIPELINE_SINCE;
   const [ventasAll, eventos] = await Promise.all([
     fetchVentas(start.toISOString(), now.toISOString(), true),
     fetchEventos(start, now),
@@ -949,7 +954,7 @@ export async function pipeline(): Promise<PipelineStage[]> {
 
 export async function orders(): Promise<Order[]> {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const start = PIPELINE_SINCE; // desde 01/01/2026 (decisão do dono)
   const ventas = await fetchVentas(start.toISOString(), now.toISOString(), true);
   // Nomes/contactos SÓ dos clientes com encomendas (não os ~10k todos).
   const { names: clients, contacts } = await loadClientInfoFor(ventas.map((v) => `${v.Codigo_cliente}-${v.Centro_cliente}`));
