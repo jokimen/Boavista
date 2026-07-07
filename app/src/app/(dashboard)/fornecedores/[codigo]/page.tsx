@@ -6,43 +6,37 @@ import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { DataTable } from "@/components/tables/DataTable";
 import { SplitBars } from "@/components/charts/SplitBars";
 import { ChartInfo } from "@/components/charts/ChartInfo";
-import { parseFilters, resolveDateRange } from "@/lib/filters/range";
+import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { getGlobalFilters } from "@/lib/filters/cookie";
 import { supplierAnalytics, type SupplierAnalytics } from "@/lib/api/visual-map";
 import { isOdataConfigured } from "@/lib/api/odata-map";
+import { fetchEmployees } from "@/lib/api/adapter";
 import { getSaudeOcularCodes } from "@/lib/targets/store";
 import { getSupplierConfig } from "@/lib/suppliers/store";
 import { SUPPLIER_GROUP_LABELS, type SupplierConfig } from "@/lib/suppliers/constants";
 import { formatCurrency } from "@/lib/utils";
 
-/** Reconstrói a query string dos filtros globais para preservar o período nos links. */
-function qs(sp: Record<string, string | string[] | undefined>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) {
-    if (typeof v === "string") p.set(k, v);
-    else if (Array.isArray(v) && v[0]) p.set(k, v[0]);
-  }
-  const s = p.toString();
-  return s ? `?${s}` : "";
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
 }
 
 export default async function FornecedorDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ codigo: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requireModule("fornecedores");
   const { codigo } = await params;
-  const sp = await searchParams;
-  const filters = parseFilters(sp);
+  const filters = await getGlobalFilters();
   const { from, to } = resolveDateRange(filters);
-  const backQs = qs(sp);
 
   if (!isOdataConfigured()) {
     return (
       <div className="flex flex-col h-full">
-        <TopBar title="Fornecedor" backHref={`/fornecedores${backQs}`} />
+        <TopBar title="Fornecedor" backHref="/fornecedores" />
         <div className="p-6 text-sm text-text-secondary">OData não configurado (ODATA_URL/USER/PASSWORD).</div>
       </div>
     );
@@ -50,9 +44,11 @@ export default async function FornecedorDetailPage({
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <TopBar title="Fornecedor" subtitle="Análise de vendas no período" backHref={`/fornecedores${backQs}`} />
+      <TopBar title="Fornecedor" subtitle="Análise de vendas no período" backHref="/fornecedores" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <GlobalFilters compact />
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
         <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar análise do fornecedor…</div>}>
           <SupplierDetail codigo={decodeURIComponent(codigo)} from={from} to={to} />
         </Suspense>

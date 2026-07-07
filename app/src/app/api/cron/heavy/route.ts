@@ -19,7 +19,7 @@ async function handle(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { stock, clients, contactLensClients } = await import("@/lib/api/visual-map");
+  const { stock, clients, contactLensClients, pipeline, orders, clinicalRecall } = await import("@/lib/api/visual-map");
   const done: Record<string, string> = {};
 
   // Stock primeiro (o mais pesado/pedido), depois clientes e LC. Em série.
@@ -40,6 +40,27 @@ async function handle(request: NextRequest) {
     await saveHeavySnapshot("contact_lens", data);
     done.contact_lens = `ok (${data.diarias.length + data.mensais.length} clientes LC)`;
   } catch (e) { done.contact_lens = `erro: ${e instanceof Error ? e.message : e}`; }
+
+  // Pipeline + encomendas ativas (funil comercial) — batiam a API ao vivo na Vercel
+  // (menu Pipeline lento). Pré-calculados aqui → leitura instantânea.
+  try {
+    const data = await pipeline();
+    await saveHeavySnapshot("pipeline", data);
+    done.pipeline = `ok (${data.length} etapas)`;
+  } catch (e) { done.pipeline = `erro: ${e instanceof Error ? e.message : e}`; }
+
+  try {
+    const data = await orders();
+    await saveHeavySnapshot("orders", data);
+    done.orders = `ok (${data.length} encomendas)`;
+  } catch (e) { done.orders = `erro: ${e instanceof Error ? e.message : e}`; }
+
+  // Recall clínico (secção lenta do menu Clientes) — pré-calculado.
+  try {
+    const data = await clinicalRecall();
+    await saveHeavySnapshot("clinical_recall", data);
+    done.clinical_recall = `ok (${data.optometria.length + data.contactologia.length} a contactar)`;
+  } catch (e) { done.clinical_recall = `erro: ${e instanceof Error ? e.message : e}`; }
 
   return NextResponse.json({ precomputed: done });
 }

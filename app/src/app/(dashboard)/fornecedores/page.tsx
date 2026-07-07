@@ -5,43 +5,35 @@ import { TopBar } from "@/components/layout/TopBar";
 import { KpiCard } from "@/components/kpi/KpiCard";
 import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { DataTable } from "@/components/tables/DataTable";
-import { parseFilters, resolveDateRange } from "@/lib/filters/range";
+import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { getGlobalFilters } from "@/lib/filters/cookie";
 import { supplierPurchases, isOdataConfigured } from "@/lib/api/odata-map";
 import { supplierSalesByProvider } from "@/lib/api/visual-map";
+import { fetchEmployees } from "@/lib/api/adapter";
 import { getSupplierConfig, SUPPLIER_GROUP_LABELS, rappelForTotal, rappelPctForTotal, type SupplierGroup } from "@/lib/suppliers/store";
 import { SUPPLIER_GROUPS } from "@/lib/suppliers/constants";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
-/** Query string dos filtros globais, para preservar o período nos links de detalhe. */
-function qs(sp: Record<string, string | string[] | undefined>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) {
-    if (typeof v === "string") p.set(k, v);
-    else if (Array.isArray(v) && v[0]) p.set(k, v[0]);
-  }
-  const s = p.toString();
-  return s ? `?${s}` : "";
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
 }
 
-/** Link para a página de detalhe de um fornecedor (preserva o período). */
-function SupplierLink({ codigo, nome, linkQs }: { codigo: string; nome: string; linkQs: string }) {
+/** Link para a página de detalhe de um fornecedor (o período vem do cookie global). */
+function SupplierLink({ codigo, nome }: { codigo: string; nome: string }) {
   return (
-    <Link href={`/fornecedores/${encodeURIComponent(codigo)}${linkQs}`} className="text-[#3b82f6] hover:text-[#60a5fa] hover:underline">
+    <Link href={`/fornecedores/${encodeURIComponent(codigo)}`} className="text-[#3b82f6] hover:text-[#60a5fa] hover:underline">
       {nome}
     </Link>
   );
 }
 
-export default async function FornecedoresPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function FornecedoresPage() {
   await requireModule("fornecedores");
-  const sp = await searchParams;
-  const filters = parseFilters(sp);
+  const filters = await getGlobalFilters();
   const { from, to } = resolveDateRange(filters);
-  const linkQs = qs(sp);
 
   if (!isOdataConfigured()) {
     return (
@@ -61,14 +53,16 @@ export default async function FornecedoresPage({
           <ComprasMesAno />
         </Suspense>
 
-        <GlobalFilters compact />
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
 
         <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar principais fornecedores…</div>}>
-          <PrincipaisFornecedores from={from} to={to} linkQs={linkQs} />
+          <PrincipaisFornecedores from={from} to={to} />
         </Suspense>
 
         <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar compras do período…</div>}>
-          <FornecedoresPeriodo from={from} to={to} linkQs={linkQs} />
+          <FornecedoresPeriodo from={from} to={to} />
         </Suspense>
       </div>
     </div>
@@ -100,7 +94,7 @@ async function ComprasMesAno() {
  * Principais fornecedores por VENDAS no período, agrupados pelos 3 grupos
  * (Admin → Fornecedores). Cada fornecedor abre a página de análise detalhada.
  */
-async function PrincipaisFornecedores({ from, to, linkQs }: { from: string; to: string; linkQs: string }) {
+async function PrincipaisFornecedores({ from, to }: { from: string; to: string }) {
   const [sales, config] = await Promise.all([supplierSalesByProvider(from, to), getSupplierConfig()]);
   if (!sales.length) return null;
   // Só os grupos DEFINIDOS no Admin; fornecedores sem grupo são ignorados.
@@ -125,7 +119,7 @@ async function PrincipaisFornecedores({ from, to, linkQs }: { from: string; to: 
             <ul className="space-y-2">
               {sec.rows.map((r) => (
                 <li key={r.proveedor} className="flex items-center justify-between gap-2 text-sm">
-                  <SupplierLink codigo={r.proveedor} nome={r.nome} linkQs={linkQs} />
+                  <SupplierLink codigo={r.proveedor} nome={r.nome} />
                   <span className="text-text-secondary tabular-nums whitespace-nowrap">{formatCurrency(r.sales)}</span>
                 </li>
               ))}
@@ -138,7 +132,7 @@ async function PrincipaisFornecedores({ from, to, linkQs }: { from: string; to: 
 }
 
 /** Vista do período filtrado: KPIs, agregação por grupo e detalhe por fornecedor. */
-async function FornecedoresPeriodo({ from, to, linkQs }: { from: string; to: string; linkQs: string }) {
+async function FornecedoresPeriodo({ from, to }: { from: string; to: string }) {
   const [purchases, config] = await Promise.all([supplierPurchases(from, to), getSupplierConfig()]);
   const cfgOf = (prov: string) => config[prov];
   const totalCompras = purchases.reduce((s, p) => s + p.total, 0);
@@ -197,7 +191,7 @@ async function FornecedoresPeriodo({ from, to, linkQs }: { from: string; to: str
             })}
             keyField="id"
             columns={[
-              { key: "nome", label: "Fornecedor", render: r => <SupplierLink codigo={r.proveedor} nome={r.nome} linkQs={linkQs} /> },
+              { key: "nome", label: "Fornecedor", render: r => <SupplierLink codigo={r.proveedor} nome={r.nome} /> },
               { key: "grupo", label: "Grupo", render: r => <span className="text-text-secondary">{r.grupo}</span> },
               { key: "count", label: "Faturas", render: r => <span className="text-text-secondary">{r.count}</span> },
               { key: "total", label: "Compras", render: r => <span className="font-medium">{formatCurrency(r.total)}</span> },

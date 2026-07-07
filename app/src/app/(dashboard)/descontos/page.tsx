@@ -7,11 +7,21 @@ import { Badge } from "@/components/ui/badge";
 import { ExportData } from "@/components/tables/ExportData";
 import { ChartInfo } from "@/components/charts/ChartInfo";
 import { canExport } from "@/lib/auth/permissions";
-import { fetchDiscounts } from "@/lib/api/adapter";
+import { fetchDiscounts, fetchEmployees } from "@/lib/api/adapter";
 import { insurerDiscounts } from "@/lib/api/visual-map";
 import { getAseguradoraConfig } from "@/lib/aseguradoras/store";
+import { GlobalFilters } from "@/components/layout/GlobalFilters";
+import { getGlobalFilters } from "@/lib/filters/cookie";
+import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
 import { LowMarginTable } from "./LowMarginTable";
 import { formatCurrency, formatPercent } from "@/lib/utils";
+
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
+}
 
 // Descontos em vendas COM SEGURO (comparticipação média por seguradora). Vai à REST
 // FacturasClientes — em Suspense para não atrasar o resto da página.
@@ -52,16 +62,18 @@ async function SeguroDiscountsSection({ from, to }: { from: string; to: string }
 
 export default async function DescontosPage() {
   const session = await requireModule("descontos");
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-  const to = now.toISOString().split("T")[0];
+  const filters = await getGlobalFilters();
+  const { from, to } = resolveDateRange(filters);
   const data = await fetchDiscounts(from, to);
 
   return (
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title="Descontos e Margem" subtitle="Análise de descontos e impacto na rentabilidade" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <Suspense fallback={<GlobalFilters compact value={filters} />}>
+            <FiltersBar value={filters} />
+          </Suspense>
           <ExportData
             title="Descontos por colaborador"
             canExport={canExport(session.permissions, "descontos")}
@@ -75,7 +87,7 @@ export default async function DescontosPage() {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <KpiCard data={{ label: "Descontos Hoje", value: data.total_discount_day, unit: "€" }} />
-          <KpiCard data={{ label: "Descontos Mês", value: data.total_discount_month, unit: "€" }} />
+          <KpiCard data={{ label: "Descontos no Período", value: data.total_discount_month, unit: "€" }} />
           <KpiCard data={{ label: "Desconto Médio", value: data.avg_discount_pct, unit: "%" }} />
           <KpiCard data={{ label: "Vendas Baixa Margem", value: data.below_min_margin.length, unit: "" }} />
         </div>

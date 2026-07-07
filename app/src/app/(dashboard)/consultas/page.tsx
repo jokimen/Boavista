@@ -4,8 +4,18 @@ import { TopBar } from "@/components/layout/TopBar";
 import { KpiCard } from "@/components/kpi/KpiCard";
 import { DataTable } from "@/components/tables/DataTable";
 import { Badge } from "@/components/ui/badge";
-import { fetchAppointments } from "@/lib/api/adapter";
+import { fetchAppointments, fetchEmployees } from "@/lib/api/adapter";
+import { GlobalFilters } from "@/components/layout/GlobalFilters";
+import { getGlobalFilters } from "@/lib/filters/cookie";
+import { resolveDateRange, PERIOD_LABELS, type DashboardFilters } from "@/lib/filters/range";
 import { formatCurrency, formatPercent } from "@/lib/utils";
+
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
+}
 
 type Appointment = Awaited<ReturnType<typeof fetchAppointments>>[number];
 
@@ -120,22 +130,18 @@ async function DiaSection() {
   );
 }
 
-/** Vista MENSAL: KPIs do mês + ocupação por profissional no mês. */
-async function MesSection() {
-  const now = new Date();
-  const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
-  const appointments = await fetchAppointments(first, last);
-  const monthLabel = now.toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+/** Vista do PERÍODO (filtro global): KPIs + ocupação por profissional no intervalo. */
+async function PeriodoSection({ from, to, label }: { from: string; to: string; label: string }) {
+  const appointments = await fetchAppointments(from, to);
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-text-primary">Este Mês</h2>
-        <span className="text-xs text-text-muted capitalize">{monthLabel}</span>
+        <h2 className="text-sm font-semibold text-text-primary">Período</h2>
+        <span className="text-xs text-text-muted">{label}</span>
       </div>
       <KpiRow appointments={appointments} scope="mes" />
       <div className="rounded-xl bg-bg-card border border-border p-4">
-        <h3 className="text-sm font-semibold text-text-primary mb-4">Ocupação por Profissional (mês)</h3>
+        <h3 className="text-sm font-semibold text-text-primary mb-4">Ocupação por Profissional (período)</h3>
         <OcupacaoTable appointments={appointments} />
       </div>
     </div>
@@ -144,15 +150,23 @@ async function MesSection() {
 
 export default async function ConsultasPage() {
   await requireModule("consultas");
+  const filters = await getGlobalFilters();
+  const { from, to } = resolveDateRange(filters);
+  const label = filters.period === "custom" && filters.from && filters.to
+    ? `${filters.from} a ${filters.to}`
+    : PERIOD_LABELS[filters.period];
   return (
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title="Consultas e Agenda" subtitle="Gestão de consultas e conversões" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-8">
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
         <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar consultas de hoje…</div>}>
           <DiaSection />
         </Suspense>
-        <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar resumo mensal…</div>}>
-          <MesSection />
+        <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar resumo do período…</div>}>
+          <PeriodoSection from={from} to={to} label={label} />
         </Suspense>
       </div>
     </div>

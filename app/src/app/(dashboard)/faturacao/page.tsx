@@ -5,11 +5,20 @@ import { KpiCard } from "@/components/kpi/KpiCard";
 import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { DataTable } from "@/components/tables/DataTable";
 import { ChartInfo } from "@/components/charts/ChartInfo";
-import { parseFilters, resolveDateRange } from "@/lib/filters/range";
+import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { getGlobalFilters } from "@/lib/filters/cookie";
 import { invoices, isOdataConfigured } from "@/lib/api/odata-map";
 import { insurerDiscounts } from "@/lib/api/visual-map";
+import { fetchEmployees } from "@/lib/api/adapter";
 import { getAseguradoraConfig } from "@/lib/aseguradoras/store";
 import { formatCurrency } from "@/lib/utils";
+
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
+}
 
 /** Agrupa por chave, devolvendo [{label, count}] ordenado por count desc. */
 function countBy<T>(rows: T[], key: (r: T) => string): { label: string; count: number }[] {
@@ -116,13 +125,9 @@ async function InsurerSection({ from, to }: { from: string; to: string }) {
   );
 }
 
-export default async function FaturacaoPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function FaturacaoPage() {
   await requireModule("faturacao");
-  const filters = parseFilters(await searchParams);
+  const filters = await getGlobalFilters();
   const { from, to } = resolveDateRange(filters);
 
   if (!isOdataConfigured()) {
@@ -138,7 +143,9 @@ export default async function FaturacaoPage({
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title="Faturação" subtitle="Faturas emitidas a clientes" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <GlobalFilters compact />
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
         <Suspense fallback={<BoxFallback msg="A carregar faturas…" />}>
           <InvoicesSection from={from} to={to} />
         </Suspense>

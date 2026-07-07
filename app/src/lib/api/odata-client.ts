@@ -52,11 +52,23 @@ export async function odataSelect<T>(entitySet: string, q: OdataQuery = {}): Pro
   let url = `${BASE}/${entitySet}?${params.toString()}`;
   const out: T[] = [];
   for (let guard = 0; guard < 200 && url; guard++) {
-    const res = await fetch(url, {
-      headers: { Authorization: authHeader(), Accept: "application/json" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: authHeader(), Accept: "application/json" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (e) {
+      // Normaliza o DOMException do timeout (message só-de-leitura) para um Error
+      // normal — senão o Next tenta `err.message = …` e rebenta com
+      // "Cannot set property message …" (unhandledRejection em cascata).
+      const name = e instanceof Error ? e.name : "";
+      if (name === "TimeoutError" || name === "AbortError") {
+        throw new Error(`OData timeout ${TIMEOUT_MS}ms em ${entitySet}`);
+      }
+      throw new Error(`OData falha de rede em ${entitySet}: ${e instanceof Error ? e.message : String(e)}`);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`OData ${res.status} em ${entitySet}: ${body.slice(0, 200)}`);

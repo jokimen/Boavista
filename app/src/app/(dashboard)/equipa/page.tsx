@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { requireModule } from "@/lib/auth/guard";
 import { TopBar } from "@/components/layout/TopBar";
@@ -7,18 +8,29 @@ import { WeeklyReportButton } from "./WeeklyReportButton";
 import { Badge } from "@/components/ui/badge";
 import { ExportData } from "@/components/tables/ExportData";
 import { canExport } from "@/lib/auth/permissions";
-import { fetchSalesByEmployee } from "@/lib/api/adapter";
+import { fetchSalesByEmployee, fetchEmployees } from "@/lib/api/adapter";
+import { GlobalFilters } from "@/components/layout/GlobalFilters";
+import { getGlobalFilters } from "@/lib/filters/cookie";
+import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
 import { getEmployeeTargets } from "@/lib/targets/store";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
+}
+
 export default async function EquipaPage() {
   const session = await requireModule("equipa");
-  const today = new Date();
-  const from = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0];
-  const to = today.toISOString().split("T")[0];
+  const filters = await getGlobalFilters();
+  const { from, to } = resolveDateRange(filters);
+  // Objetivo mensal referente ao MÊS do início do período selecionado.
+  const targetMonth = new Date(from);
   const [rawEmployees, dbTargets] = await Promise.all([
     fetchSalesByEmployee(from, to),
-    getEmployeeTargets(today.getFullYear(), today.getMonth() + 1).catch(() => ({} as Record<string, number>)),
+    getEmployeeTargets(targetMonth.getFullYear(), targetMonth.getMonth() + 1).catch(() => ({} as Record<string, number>)),
   ]);
   // Objetivo por vendedor definido no Admin tem prioridade sobre o fallback (env).
   const employees = rawEmployees.map((e) => ({ ...e, target: dbTargets[e.employee_id] ?? e.target }));
@@ -33,6 +45,9 @@ export default async function EquipaPage() {
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title="Equipa e Desempenho" subtitle="Performance comercial por colaborador" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
         <div className="flex justify-between items-center gap-3 flex-wrap">
           {canExport(session.permissions, "equipa") && <WeeklyReportButton />}
           <ExportData

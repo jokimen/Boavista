@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Target, Settings2 } from "lucide-react";
 import { fetchTargetProgress } from "@/lib/api/adapter";
-import { getTargetProgress } from "@/lib/snapshots/daily";
 import {
   getMonthlyTargets,
   getSaudeOcularCodes,
@@ -45,17 +44,14 @@ export async function TargetsPanel({ canEdit = false }: { canEdit?: boolean }) {
   ]);
 
   const hasAnyTarget = Object.keys(targets).length > 0;
-  // O progresso vem dos agregados diários do Supabase (instantâneo, mesma região)
-  // — derivados das MESMAS vendas líquidas que o cálculo ao vivo. Só se o snapshot
-  // estiver vazio (ex.: cron ainda não correu) é que se cai na API Visual (lenta/
-  // inacessível a partir da Vercel); se essa também falhar, mostram-se os objetivos
-  // sem progresso (nunca derruba o dashboard).
+  // Progresso SEMPRE ao vivo (API Visual, via adapter com cache curta) — derivado
+  // das MESMAS vendas líquidas dos KPIs. Se falhar, mostram-se os objetivos sem
+  // progresso (nunca derruba o dashboard).
   let progress = null;
   let progressFailed = false;
   if (hasAnyTarget) {
     try {
-      progress = await getTargetProgress(monthStart, to);
-      if (!progress) progress = await fetchTargetProgress(monthStart, to, saudeCodes);
+      progress = await fetchTargetProgress(monthStart, to, saudeCodes);
     } catch {
       progressFailed = true;
     }

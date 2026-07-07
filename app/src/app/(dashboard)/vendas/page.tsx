@@ -8,9 +8,9 @@ import { DataTable } from "@/components/tables/DataTable";
 import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { CrossSellTable } from "./CrossSellTable";
 import { MonthlyReportButton } from "./MonthlyReportButton";
-import { parseFilters, resolveDateRange, resolvePreviousRange } from "@/lib/filters/range";
-import { fetchSalesSummary, fetchSalesByCategory, fetchSalesByEmployee, fetchEmployees, fetchTopBrands, fetchCrossSell, fetchSecondPairSales, fetchTreatmentAttach } from "@/lib/api/adapter";
-import { getRangeMetrics } from "@/lib/snapshots/daily";
+import { resolveDateRange, resolvePreviousRange, type DashboardFilters } from "@/lib/filters/range";
+import { getGlobalFilters } from "@/lib/filters/cookie";
+import { fetchSalesSummary, fetchSalesSummaryLight, fetchSalesByCategory, fetchSalesByEmployee, fetchEmployees, fetchTopBrands, fetchCrossSell, fetchSecondPairSales, fetchTreatmentAttach } from "@/lib/api/adapter";
 import { getSaudeOcularCodes } from "@/lib/targets/store";
 import { ExportData } from "@/components/tables/ExportData";
 import { canExport } from "@/lib/auth/permissions";
@@ -22,42 +22,55 @@ const BoxFallback = ({ msg }: { msg: string }) => (
 
 // Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense para a
 // barra aparecer de imediato.
-async function FiltersBar() {
+async function FiltersBar({ value }: { value: DashboardFilters }) {
   let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
   try { employees = await fetchEmployees(); } catch { employees = []; }
-  return <GlobalFilters compact employees={employees} />;
+  return <GlobalFilters compact employees={employees} value={value} />;
 }
 
-// KPIs de vendas/margem (summary atual vs período anterior). Margem só com cobertura ≥80%.
-async function KpisSection({ from, to, prevFrom, prevTo, prevLabel }: { from: string; to: string; prevFrom: string; prevTo: string; prevLabel: string }) {
-  // Agregados diários do Firestore (instantâneo); fallback ao vivo se não cobrir os dias.
-  const [rCur, rPrev] = await Promise.all([
-    getRangeMetrics(from, to).catch(() => null),
-    getRangeMetrics(prevFrom, prevTo).catch(() => null),
-  ]);
-  const [summary, prevSummary] = await Promise.all([
-    rCur?.summary ?? fetchSalesSummary(from, to),
-    rPrev?.summary ?? fetchSalesSummary(prevFrom, prevTo),
-  ]);
+const KpiSkeleton = () => <div className="rounded-xl bg-bg-card border border-border h-[92px] animate-pulse" />;
+const KpiUnavailable = () => <div className="rounded-xl bg-bg-card border border-border h-[92px] flex items-center justify-center text-xs text-text-muted">—</div>;
+
+// KPIs rápidos (REST leve, sem OData): Total Vendas + Ticket. Aparecem em ~1-2s.
+async function FastKpis({ from, to, prevFrom, prevTo, prevLabel }: { from: string; to: string; prevFrom: string; prevTo: string; prevLabel: string }) {
+  let s, p;
+  try {
+    [s, p] = await Promise.all([fetchSalesSummaryLight(from, to), fetchSalesSummaryLight(prevFrom, prevTo)]);
+  } catch {
+    return <>{Array.from({ length: 2 }).map((_, i) => <KpiUnavailable key={i} />)}</>;
+  }
+  return (
+    <>
+      <KpiCard data={{ label: "Total Vendas", value: s.total_sales, unit: "€", infoId: "kpi-vendas", change: pctChange(s.total_sales, p.total_sales), changePeriod: prevLabel }} />
+      <KpiCard data={{ label: "Ticket Médio", value: s.avg_ticket, unit: "€", infoId: "kpi-ticket", change: pctChange(s.avg_ticket, p.avg_ticket), changePeriod: prevLabel }} />
+    </>
+  );
+}
+
+// KPIs de margem (pesados: custos via OData). Suspense próprio. Margem só com cobertura ≥80%.
+async function MarginKpis({ from, to, prevFrom, prevTo, prevLabel }: { from: string; to: string; prevFrom: string; prevTo: string; prevLabel: string }) {
+  let summary, prevSummary;
+  try {
+    [summary, prevSummary] = await Promise.all([fetchSalesSummary(from, to), fetchSalesSummary(prevFrom, prevTo)]);
+  } catch {
+    return <>{Array.from({ length: 2 }).map((_, i) => <KpiUnavailable key={i} />)}</>;
+  }
   const covered = marginIfCovered(summary.margin_pct, summary.cobertura_pct) !== null;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <KpiCard data={{ label: "Total Vendas", value: summary.total_sales, unit: "€", infoId: "kpi-vendas", change: pctChange(summary.total_sales, prevSummary.total_sales), changePeriod: prevLabel }} />
+    <>
       <KpiCard data={covered
         ? { label: "Margem Bruta", value: summary.total_margin, unit: "€", infoId: "kpi-margem-cobertura", change: pctChange(summary.total_margin, prevSummary.total_margin), changePeriod: prevLabel }
         : { label: "Margem Bruta", value: "—", unit: "", infoId: "kpi-margem-cobertura" }} />
       <KpiCard data={covered
         ? { label: "Margem %", value: summary.margin_pct, unit: "%", infoId: "kpi-margem-cobertura", change: pctChange(summary.margin_pct, prevSummary.margin_pct), changePeriod: prevLabel }
         : { label: "Margem %", value: "—", unit: "", infoId: "kpi-margem-cobertura" }} />
-      <KpiCard data={{ label: "Ticket Médio", value: summary.avg_ticket, unit: "€", infoId: "kpi-ticket", change: pctChange(summary.avg_ticket, prevSummary.avg_ticket), changePeriod: prevLabel }} />
-    </div>
+    </>
   );
 }
 
 async function CategorySection({ from, to, category }: { from: string; to: string; category: string | null }) {
-  // Agregados diários do Firestore (instantâneo); fallback ao vivo se não cobrir os dias.
-  const ranged = await getRangeMetrics(from, to).catch(() => null);
-  const all = ranged?.byCategory ?? await fetchSalesByCategory(from, to, await getSaudeOcularCodes());
+  // Sempre ao vivo (API Visual, via adapter com cache curta).
+  const all = await fetchSalesByCategory(from, to, await getSaudeOcularCodes());
   const byCategory = category ? all.filter((c) => c.category === category) : all;
   return (
     <div className="rounded-xl bg-bg-card border border-border p-4">
@@ -204,13 +217,9 @@ async function SecondPairSection({ from, to }: { from: string; to: string }) {
   );
 }
 
-export default async function VendasPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function VendasPage() {
   const session = await requireModule("vendas");
-  const filters = parseFilters(await searchParams);
+  const filters = await getGlobalFilters();
   const { from, to } = resolveDateRange(filters);
   const prev = resolvePreviousRange(filters);
   const canExportVendas = canExport(session.permissions, "vendas");
@@ -220,15 +229,20 @@ export default async function VendasPage({
       <TopBar title="Vendas" subtitle="Análise detalhada por categoria e colaborador" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <Suspense fallback={<GlobalFilters compact />}>
-            <FiltersBar />
+          <Suspense fallback={<GlobalFilters compact value={filters} />}>
+            <FiltersBar value={filters} />
           </Suspense>
           {canExportVendas && <MonthlyReportButton />}
         </div>
 
-        <Suspense fallback={<BoxFallback msg="A carregar KPIs…" />}>
-          <KpisSection from={from} to={to} prevFrom={prev.from} prevTo={prev.to} prevLabel={prev.label} />
-        </Suspense>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Suspense fallback={<>{Array.from({ length: 2 }).map((_, i) => <KpiSkeleton key={i} />)}</>}>
+            <FastKpis from={from} to={to} prevFrom={prev.from} prevTo={prev.to} prevLabel={prev.label} />
+          </Suspense>
+          <Suspense fallback={<>{Array.from({ length: 2 }).map((_, i) => <KpiSkeleton key={i} />)}</>}>
+            <MarginKpis from={from} to={to} prevFrom={prev.from} prevTo={prev.to} prevLabel={prev.label} />
+          </Suspense>
+        </div>
 
         <Suspense fallback={<BoxFallback msg="A carregar categorias…" />}>
           <CategorySection from={from} to={to} category={filters.category} />

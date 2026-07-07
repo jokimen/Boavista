@@ -1,21 +1,27 @@
+import { Suspense } from "react";
 import { requireModule } from "@/lib/auth/guard";
 import { TopBar } from "@/components/layout/TopBar";
 import { KpiCard } from "@/components/kpi/KpiCard";
 import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { DataTable } from "@/components/tables/DataTable";
-import { parseFilters, resolveDateRange } from "@/lib/filters/range";
+import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { getGlobalFilters } from "@/lib/filters/cookie";
 import { caixaSummary, isOdataConfigured } from "@/lib/api/odata-map";
+import { fetchEmployees } from "@/lib/api/adapter";
 import { formatCurrency } from "@/lib/utils";
 import { ChartInfo } from "@/components/charts/ChartInfo";
 import { CaixaByDay } from "./CaixaByDay";
 
-export default async function CaixaPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
+}
+
+export default async function CaixaPage() {
   await requireModule("caixa");
-  const filters = parseFilters(await searchParams);
+  const filters = await getGlobalFilters();
   const { from, to } = resolveDateRange(filters);
 
   if (!isOdataConfigured()) {
@@ -33,7 +39,9 @@ export default async function CaixaPage({
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title="Gestão de Caixa" subtitle="Pagamentos recebidos por período" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <GlobalFilters compact />
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <KpiCard data={{ label: "Total Recebido", value: caixa.total, unit: "€" }} />

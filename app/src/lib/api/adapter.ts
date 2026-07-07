@@ -19,17 +19,9 @@ const USE_MOCK = process.env.USE_MOCK_DATA !== "false";
 // durante este tempo, em vez de recalcular tudo (~dezenas de segundos).
 const SALES_REVALIDATE = 300; // 5 min
 
-const cSalesSummary = unstable_cache(
-  async (from: string, to: string) => (await import("./visual-map")).salesSummary(from, to),
-  ["sales-summary"], { revalidate: SALES_REVALIDATE },
-);
 const cSalesSummaryLight = unstable_cache(
   async (from: string, to: string) => (await import("./visual-map")).salesSummaryLight(from, to),
   ["sales-summary-light"], { revalidate: SALES_REVALIDATE },
-);
-const cSalesByCategory = unstable_cache(
-  async (from: string, to: string, codes: string[]) => (await import("./visual-map")).salesByCategory(from, to, codes),
-  ["sales-by-category"], { revalidate: SALES_REVALIDATE },
 );
 const cSalesByEmployee = unstable_cache(
   async (from: string, to: string) => (await import("./visual-map")).salesByEmployee(from, to),
@@ -47,7 +39,13 @@ export async function fetchSalesSummary(from: string, to: string) {
     const { mockSalesSummary } = await import("@/lib/mock-data/sales");
     return mockSalesSummary(from, to);
   }
-  return cSalesSummary(from, to);
+  // SEM Data Cache de 5 min de propósito: a margem depende do OData (custos das
+  // lentes) que pode dar timeout no arranque a frio; o unstable_cache CONGELAVA
+  // esse resultado degradado (cobertura baixa → margem "—") durante 5 min mesmo
+  // depois de o OData recuperar. Conta antes com as caches internas do visual-map
+  // (60s, que EVICTAM em falha do OData) → a margem recupera sozinha em ~60s.
+  const { salesSummary } = await import("./visual-map");
+  return salesSummary(from, to);
 }
 
 /** Resumo LEVE (só métricas de vendas via REST — sem margem/artigos/OData). Rápido. */
@@ -64,7 +62,11 @@ export async function fetchSalesByCategory(from: string, to: string, saudeCodes:
     const { mockSalesByCategory } = await import("@/lib/mock-data/sales");
     return mockSalesByCategory(from, to);
   }
-  return cSalesByCategory(from, to, [...saudeCodes]);
+  // SEM Data Cache de 5 min (carrega margem por categoria via OData) — ver nota em
+  // fetchSalesSummary: evita congelar cobertura degradada; recupera pelas caches
+  // internas do visual-map (60s, evictam em falha).
+  const { salesByCategory } = await import("./visual-map");
+  return salesByCategory(from, to, [...saudeCodes]);
 }
 
 export async function fetchSalesByEmployee(from: string, to: string) {
@@ -129,6 +131,10 @@ export async function fetchTreatmentAttach(from: string, to: string) {
 /** Recall clínico (optometria +2 anos / contactologia +1 ano) — proxy por compras. */
 export async function fetchClinicalRecall() {
   if (USE_MOCK) return { optometria: [], contactologia: [] };
+  // Snapshot pré-calculado (instantâneo) → senão calcula ao vivo (cacheado no visual-map).
+  const { getClinicalRecallSnapshot } = await import("@/lib/snapshots/heavy");
+  const snap = await getClinicalRecallSnapshot();
+  if (snap) return snap;
   const { clinicalRecall } = await import("./visual-map");
   return clinicalRecall();
 }
@@ -186,7 +192,9 @@ export async function fetchPipeline() {
     const { mockPipeline } = await import("@/lib/mock-data/pipeline");
     return mockPipeline();
   }
-  return cPipeline();
+  // Snapshot pré-calculado no Firestore (instantâneo) → senão calcula ao vivo (cacheado).
+  const { getPipelineSnapshot } = await import("@/lib/snapshots/heavy");
+  return (await getPipelineSnapshot()) ?? cPipeline();
 }
 
 export async function fetchOrders() {
@@ -194,7 +202,8 @@ export async function fetchOrders() {
     const { mockOrders } = await import("@/lib/mock-data/pipeline");
     return mockOrders();
   }
-  return cOrders();
+  const { getOrdersSnapshot } = await import("@/lib/snapshots/heavy");
+  return (await getOrdersSnapshot()) ?? cOrders();
 }
 
 // ─── Stock ────────────────────────────────────────────────────────────────────

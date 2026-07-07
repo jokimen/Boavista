@@ -46,8 +46,14 @@ qrcode · Resend (email) · WAHA (WhatsApp) · xlsx + jspdf (export) · zod.
   recall clínico, cross-sell, attach de tratamentos) a partir do adapter. Janela de **2 meses**
   para margem/descontos; objetivo de ritmo usa o objetivo mensal REAL do Firestore.
 - **Filtros globais**: `src/lib/filters/range.ts` + `components/layout/GlobalFilters.tsx`
-  (período/datas/colaborador/categoria via URL searchParams). `resolvePreviousRange` dá o período
-  homólogo anterior (badges "vs período ant." nos KPIs — variação REAL, não hardcoded).
+  (período/datas/colaborador/categoria). **PERSISTENTES e GLOBAIS via cookie `of_filters`** (não URL):
+  o `GlobalFilters` (cliente) grava o JSON no cookie + `router.refresh()`; TODAS as páginas com âmbito
+  de datas leem via `getGlobalFilters()` (`src/lib/filters/cookie.ts`, server-only) — mudar o período
+  num menu aplica-se a todos. Cada página passa `value={filters}` ao `GlobalFilters` (estado SSR).
+  Páginas de detalhe (`/equipa/[vendedor]`, `/fornecedores/[codigo]`) já não precisam de query string
+  nos links (o cookie persiste). `resolvePreviousRange` dá o período homólogo anterior (badges "vs
+  período ant." nos KPIs — variação REAL, não hardcoded). **Hoje/Pipeline** ficam fora do filtro
+  (Hoje=sempre hoje; Pipeline=estado ao vivo do funil).
 - **⚠️ Fronteira server/client**: constantes/tipos que componentes CLIENTE precisam vivem em
   ficheiros próprios SEM `next/headers` (`lib/targets/constants.ts`, `lib/suppliers/constants.ts`).
   Os `store.ts` (que importam o Admin SDK `firebase/admin`) têm `import "server-only"`. NUNCA importar
@@ -208,10 +214,12 @@ Tudo via **Admin SDK** (a página já está protegida no proxy; agregados não-s
   mês atual + anterior recalculados sempre (apanha lançamentos atrasados); meses antigos só uma vez
   (backfill, do recente para o antigo). Lógica em `src/lib/snapshots/daily.ts`.
 - **Leituras pesadas sem datas** (coleção `heavy_snapshots`): rota `POST /api/cron/heavy`
-  pré-calcula **stock** (catálogo + entradas), **clientes** e **clientes de LC** e faz upsert por
-  chave (`stock`/`clients`/`contact_lens`). Leitura: `src/lib/snapshots/heavy.ts`
-  (`getStockSnapshot`/`getClientsSnapshot`/`getContactLensSnapshot`); o adapter lê o snapshot e só
-  cai no cálculo ao vivo (cacheado) se estiver vazio.
+  pré-calcula **stock** (catálogo + entradas), **clientes**, **clientes de LC**, **pipeline**,
+  **encomendas ativas** e **recall clínico** e faz upsert por chave (`stock`/`clients`/`contact_lens`/
+  `pipeline`/`orders`/`clinical_recall`). Leitura: `src/lib/snapshots/heavy.ts`
+  (`getStockSnapshot`/`getClientsSnapshot`/`getContactLensSnapshot`/`getPipelineSnapshot`/
+  `getOrdersSnapshot`/`getClinicalRecallSnapshot`); o adapter lê o snapshot e só cai no cálculo ao
+  vivo (cacheado) se estiver vazio. (Pipeline e recall clínico batiam a API ao vivo na Vercel → lentos.)
 - **Dedup de alertas WhatsApp** (coleção `sent_alerts`): a rota `/api/cron/alerts` regista a
   "impressão digital" de cada alerta já enviado para não repetir o mesmo todos os dias
   (`src/lib/alerts/dedup.ts`). Acedido só pelo cron (Admin SDK).

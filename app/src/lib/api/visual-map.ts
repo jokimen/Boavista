@@ -429,9 +429,28 @@ async function fetchVentasRaw(from: string, to: string): Promise<VisualVenta[]> 
   return promise;
 }
 
+/**
+ * Valor líquido do documento de venda (ex-IVA): bruto − descontos de linha −
+ * desconto global. Igual ao `net` de `ventaMetrics`.
+ */
+function ventaNet(v: VisualVenta): number {
+  return num(v.Importe_bruto) - num(v.Importe_descuento_lineas) - num(v.Importe_DescuentoGlobal);
+}
+
+/**
+ * Uma "venda" (como o Visual/POS a conta) = documento NÃO-orçamento com valor
+ * líquido POSITIVO. Exclui os abonos/devoluções (referência "A/…", net < 0) e os
+ * documentos a 0€ (entregas/ajustes). Sem este filtro contávamos ~37 documentos a
+ * mais e subtraíamos os abonos ao total — dando 280 vendas / 61.038€ em vez dos
+ * 242 vendas / 63.210€ que o Visual mostra (validado jul/2026).
+ */
+function isRealSale(v: VisualVenta): boolean {
+  return v.Es_presupuesto !== "S" && ventaNet(v) > 0;
+}
+
 async function fetchVentas(from: string, to: string, includePresupuestos = false): Promise<VisualVenta[]> {
   const ventas = await fetchVentasRaw(from, to);
-  return includePresupuestos ? ventas : ventas.filter((v) => v.Es_presupuesto !== "S");
+  return includePresupuestos ? ventas : ventas.filter(isRealSale);
 }
 
 // Lista de colaboradores (Usuario distintos), cacheada — para o filtro global.
@@ -504,14 +523,14 @@ export async function salesSummary(from: string, to: string): Promise<SalesSumma
  */
 export async function salesSummaryLight(from: string, to: string): Promise<Pick<SalesSummary, "total_sales" | "avg_ticket" | "num_sales" | "conversion_rate" | "total_discount">> {
   const all = await fetchVentas(from, to, true); // raw cacheado, inclui orçamentos
-  const ventas = all.filter((v) => v.Es_presupuesto !== "S");
+  const ventas = all.filter(isRealSale); // vendas reais (net > 0), como o Visual conta
   let total_sales = 0, total_discount = 0;
   for (const v of ventas) {
-    total_sales += num(v.Importe_bruto) - num(v.Importe_descuento_lineas) - num(v.Importe_DescuentoGlobal);
+    total_sales += ventaNet(v);
     total_discount += num(v.Importe_descuento_lineas) + num(v.Importe_DescuentoGlobal);
   }
   const num_sales = ventas.length;
-  const quotes = all.length - num_sales;
+  const quotes = all.filter((v) => v.Es_presupuesto === "S").length;
   const conversion_rate = num_sales + quotes > 0 ? (num_sales / (num_sales + quotes)) * 100 : 0;
   return {
     total_sales: round(total_sales),
@@ -607,6 +626,7 @@ export async function computeDailyForRange(from: string, to: string, saudeCodes:
       if (convertedCodes.has(String(v.Codigo))) agg.quotes_converted = (agg.quotes_converted ?? 0) + 1;
       continue;
     }
+    if (ventaNet(v) <= 0) continue; // ignora abonos/documentos a 0€ (ver isRealSale)
     const vm = ventaMetrics(v, articles, entryCosts);
     agg.total_sales += vm.net; agg.covered_sales += vm.coveredNet; agg.total_cost += vm.cost; agg.total_discount += vm.discount; agg.num_sales += 1;
     const u = v.Usuario || "—";
@@ -930,11 +950,9 @@ export async function pipeline(): Promise<PipelineStage[]> {
 export async function orders(): Promise<Order[]> {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-  const [ventas, clients, contacts] = await Promise.all([
-    fetchVentas(start.toISOString(), now.toISOString(), true),
-    loadClientNameIndex(),
-    loadClientContactIndex(),
-  ]);
+  const ventas = await fetchVentas(start.toISOString(), now.toISOString(), true);
+  // Nomes/contactos SÓ dos clientes com encomendas (não os ~10k todos).
+  const { names: clients, contacts } = await loadClientInfoFor(ventas.map((v) => `${v.Codigo_cliente}-${v.Centro_cliente}`));
   return ventas
     .filter((v) => orderStatusFromLines(v) !== "entregue")
     .map((v) => {
@@ -1105,13 +1123,13 @@ export interface CrossSellRow {
  * Classe da linha via OData (lineClasses) com fallback ao maestro/descrição.
  */
 async function gradSunSales(from: string, to: string, mode: "opportunity" | "second_pair"): Promise<CrossSellRow[]> {
-  const [ventas, classMap, articles, names, contacts] = await Promise.all([
+  const [ventas, classMap, articles] = await Promise.all([
     fetchVentas(from, to),
     lineClasses(from, to),
     articleIndexForRange(from, to),
-    loadClientNameIndex(),
-    loadClientContactIndex(),
   ]);
+  // Nomes/contactos SÓ dos clientes deste período (não os ~10k todos).
+  const { names, contacts } = await loadClientInfoFor(ventas.map((v) => `${v.Codigo_cliente}-${v.Centro_cliente}`));
   const out: CrossSellRow[] = [];
   for (const v of ventas) {
     const ratio = lineDiscountRatio(v);
@@ -1417,6 +1435,36 @@ async function loadClientNameIndex(): Promise<Map<string, string>> {
   return map;
 }
 
+/**
+ * Resolve nome+contacto SÓ dos clientes referenciados (não carrega os ~10k todos).
+ * Para análises POR PERÍODO (algumas centenas de clientes) — filtra a tabela
+ * Clientes por `Codigo` em lotes OR, com `fields` mínimos. Evita saturar a única
+ * ligação REST a paginar a tabela inteira (era o que arrastava a página Vendas).
+ */
+async function loadClientInfoFor(
+  clientKeys: Iterable<string>,
+): Promise<{ names: Map<string, string>; contacts: Map<string, string> }> {
+  const names = new Map<string, string>();
+  const contacts = new Map<string, string>();
+  const codes = [...new Set([...clientKeys].map((k) => k.split("-")[0]).filter(Boolean))];
+  if (codes.length === 0) return { names, contacts };
+  const BATCH = 80; // lotes de OR (Codigo eq 'x' or …) — a API suporta-o
+  for (let i = 0; i < codes.length; i += BATCH) {
+    const filter = codes.slice(i, i + BATCH).map((c) => `Codigo eq '${c}'`).join(" or ");
+    const clientes = await selectAll<VisualCliente>("Clientes", {
+      // Regra da API: todo o campo do filtro (Codigo) tem de constar em fields.
+      filter,
+      fields: ["Codigo", "Centro", "Nombre", "Apellido1", "Apellido2", "Telefono", "Telefono_movil"],
+    }, 2000);
+    for (const c of clientes) {
+      const key = `${c.Codigo}-${c.Centro}`;
+      names.set(key, clientName(c));
+      contacts.set(key, (c.Telefono_movil || c.Telefono || "").toString().trim());
+    }
+  }
+  return { names, contacts };
+}
+
 /** Índice de contacto (telemóvel ou fixo) por cliente. */
 async function loadClientContactIndex(): Promise<Map<string, string>> {
   const clientes = await loadAllClientes();
@@ -1618,9 +1666,15 @@ export async function discounts(from: string, to: string) {
     const discPct = gross > 0 ? (disc / gross) * 100 : 0;
     if (discPct > EXCESSIVE_DISCOUNT_PCT) excessiveCount += 1;
 
-    // Vendas abaixo da margem mínima — só onde há custo conhecido.
+    // Vendas abaixo da margem mínima — só quando o custo está SUFICIENTEMENTE
+    // coberto (≥80% do líquido da venda). Sem este guard, uma venda em que só a
+    // lente tem custo (ex.: fatura do lab. já chegou) mas a armação/tratamentos
+    // ainda não têm custo aparecia falsamente "abaixo de 50%": estávamos a julgar
+    // a venda inteira pela margem de UMA linha (a de menor margem). Alinha com o
+    // KPI de margem (MARGIN_MIN_COVERAGE = 80%).
     const m = ventaMetrics(v, articles, entryCosts);
-    if (m.coveredNet > 0) {
+    const coverage = m.net > 0 ? m.coveredNet / m.net : 0;
+    if (m.coveredNet > 0 && coverage >= 0.8) {
       const marginPct = ((m.coveredNet - m.cost) / m.coveredNet) * 100;
       if (marginPct < 50) {
         // Detalhe linha a linha (PVP, custo, desconto, net, margem) para o drill-down.

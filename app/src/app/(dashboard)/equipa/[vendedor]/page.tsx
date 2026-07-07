@@ -6,20 +6,19 @@ import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { DataTable } from "@/components/tables/DataTable";
 import { SplitBars } from "@/components/charts/SplitBars";
 import { ChartInfo } from "@/components/charts/ChartInfo";
-import { parseFilters, resolveDateRange } from "@/lib/filters/range";
+import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { getGlobalFilters } from "@/lib/filters/cookie";
 import { employeeAnalytics, type EmployeeAnalytics } from "@/lib/api/visual-map";
+import { fetchEmployees } from "@/lib/api/adapter";
 import { canExport } from "@/lib/auth/permissions";
 import { EmployeeExport } from "./EmployeeExport";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-function qs(sp: Record<string, string | string[] | undefined>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) {
-    if (typeof v === "string") p.set(k, v);
-    else if (Array.isArray(v) && v[0]) p.set(k, v[0]);
-  }
-  const s = p.toString();
-  return s ? `?${s}` : "";
+// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+async function FiltersBar({ value }: { value: DashboardFilters }) {
+  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
+  try { employees = await fetchEmployees(); } catch { employees = []; }
+  return <GlobalFilters compact employees={employees} value={value} />;
 }
 
 const delta = (cur: number, prev: number): number =>
@@ -27,24 +26,22 @@ const delta = (cur: number, prev: number): number =>
 
 export default async function VendedorDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ vendedor: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await requireModule("equipa");
   const { vendedor } = await params;
-  const sp = await searchParams;
-  const filters = parseFilters(sp);
+  const filters = await getGlobalFilters();
   const { from, to } = resolveDateRange(filters);
-  const backQs = qs(sp);
   const allowExport = canExport(session.permissions, "equipa");
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <TopBar title={decodeURIComponent(vendedor)} subtitle="Análise do vendedor vs período homólogo (ano anterior)" backHref={`/equipa${backQs}`} />
+      <TopBar title={decodeURIComponent(vendedor)} subtitle="Análise do vendedor vs período homólogo (ano anterior)" backHref="/equipa" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <GlobalFilters compact />
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
         <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar análise do vendedor…</div>}>
           <VendedorDetail usuario={decodeURIComponent(vendedor)} from={from} to={to} allowExport={allowExport} />
         </Suspense>

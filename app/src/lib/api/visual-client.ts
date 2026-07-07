@@ -50,6 +50,26 @@ const CALL_GAP_MS = 400;
 const REQUEST_TIMEOUT_MS = 25_000;
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * `fetch` com timeout que NORMALIZA o erro. O `AbortSignal.timeout` rejeita com um
+ * `DOMException` (TimeoutError) cujo `.message` é só-de-leitura; se escapar assim, o
+ * Next/React tenta fazer `err.message = …` ao processá-lo e rebenta com
+ * "Cannot set property message …" → `unhandledRejection` em cascata, que arrastava e
+ * instabilizava os renders (páginas a demorar 30-80s). Reembrulhamos sempre num
+ * `VisualApiError` (Error normal, com `message` setável) para o erro ser tratável.
+ */
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new VisualApiError(`Timeout ${REQUEST_TIMEOUT_MS}ms: ${url}`, 0, url);
+    }
+    throw new VisualApiError(`Falha de rede: ${e instanceof Error ? e.message : String(e)}`, 0, url);
+  }
+}
+
 /** Encadeia `fn` após o pedido anterior + intervalo, garantindo execução em série. */
 function serialize<T>(fn: () => Promise<T>): Promise<T> {
   const run = chain.then(fn, fn);
@@ -94,11 +114,9 @@ async function login(): Promise<string> {
     ...(CONNECTION ? [`ConnectionName=${quoteAll(CONNECTION)}`] : []),
   ].join("&");
 
-  const res = await fetch(`${BASE_URL}/login?${params}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/login?${params}`, {
     method: "POST",
     body: "",
-    cache: "no-store",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new VisualApiError(`Login falhou (${res.status})`, res.status, "/login");
@@ -150,11 +168,9 @@ async function authedFetch(
   retryOn401 = true,
 ): Promise<Response> {
   const token = await getToken();
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}${path}`, {
     ...init,
     headers: { ...init.headers, "Access-Token": token },
-    cache: "no-store",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (res.status === 401 && retryOn401) {
     cachedToken = null;
