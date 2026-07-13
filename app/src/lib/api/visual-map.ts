@@ -453,6 +453,52 @@ async function fetchVentas(from: string, to: string, includePresupuestos = false
   return includePresupuestos ? ventas : ventas.filter(isRealSale);
 }
 
+/**
+ * Fetch de vendas reais para varreduras LONGAS (ex.: recall clínico, 3 anos).
+ *
+ * A API é lenta e paginar por OFFSET (top/skip) degrada muito: cada página fica
+ * progressivamente mais lenta (o Oracle re-ordena+salta N linhas) e as últimas
+ * acabam por rebentar o timeout de 25s — foi o que zerava o recall (o `selectAll`
+ * lança em qualquer falha de página). Aqui paginamos por **JANELA DE TEMPO (mês a
+ * mês)**: cada query é pequena e de tempo ~constante (sempre dentro do timeout,
+ * sem degradação), com **retry** e **resiliência por janela** (uma janela falhada
+ * é ignorada → resultado parcial, nunca vazio total). Filtra a vendas reais
+ * (exclui orçamentos e abonos) à medida que pagina.
+ */
+async function fetchRealVentasLongScan(from: string, to: string): Promise<VisualVenta[]> {
+  const out: VisualVenta[] = [];
+  const end = new Date(to);
+  let ws = new Date(from);
+  while (ws < end) {
+    const nextMonth = new Date(ws.getFullYear(), ws.getMonth() + 1, ws.getDate());
+    const we = nextMonth < end ? nextMonth : end;
+    const filter = [dateRangeFilter("Fecha", ws, we), centroFilter()].filter(Boolean).join(" and ");
+    try {
+      // Dentro de uma janela mensal raramente há >1000 ventas; ainda assim pagina
+      // (com offset PEQUENO, sempre limitado à janela → sem degradação global).
+      let skip = 0;
+      for (let p = 0; p < 20; p++) {
+        let batch: VisualVenta[] | null = null;
+        for (let attempt = 0; attempt < 3 && batch === null; attempt++) {
+          try {
+            batch = await select<VisualVenta>("Ventas", { filter, orderby: "Fecha desc", top: 1000, skip });
+          } catch (e) {
+            if (attempt === 2) throw e;
+          }
+        }
+        if (!batch) break;
+        for (const v of batch) if (isRealSale(v)) out.push(v);
+        if (batch.length < 1000) break;
+        skip += 1000;
+      }
+    } catch (e) {
+      console.warn(`fetchRealVentasLongScan: janela ${isoDay(ws)}..${isoDay(we)} falhou (${e instanceof Error ? e.message : e}); ignorada (recall parcial).`);
+    }
+    ws = we;
+  }
+  return out;
+}
+
 // Lista de colaboradores (Usuario distintos), cacheada — para o filtro global.
 let employeesCache: { promise: Promise<{ value: string; label: string }[]>; expires: number } | null = null;
 
@@ -1244,7 +1290,7 @@ export async function clinicalRecall(): Promise<{ optometria: RecallClient[]; co
     const now = new Date();
     const from = new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
     const [ventas, names, contacts] = await Promise.all([
-      fetchVentas(from.toISOString(), now.toISOString()),
+      fetchRealVentasLongScan(from.toISOString(), now.toISOString()),
       loadClientNameIndex(),
       loadClientContactIndex(),
     ]);
