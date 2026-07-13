@@ -94,28 +94,15 @@ export function resolveDateRange(filters: DashboardFilters | PeriodKey): { from:
 }
 
 /**
- * Período de COMPARAÇÃO homólogo anterior (para os badges "vs … ant.").
- *  - month/last_month → mesma janela recuada 1 mês (ex.: mês-a-dia vs mês anterior à mesma altura);
- *  - year → mesma janela recuada 1 ano;
- *  - resto → janela imediatamente anterior de igual duração.
- * Devolve também o rótulo a mostrar.
+ * Período de COMPARAÇÃO = SEMPRE o período HOMÓLOGO do ano anterior: a mesma
+ * janela [from, to) recuada exatamente 1 ano, para qualquer período.
+ * Ex.: 1–13 Jul 2026 → 1–13 Jul 2025; mês-a-dia → mesmo mês-a-dia do ano
+ * passado; hoje → mesmo dia do ano passado. Todos os badges "acima/abaixo"
+ * comparam contra o homólogo do ano anterior.
  */
 export function resolvePreviousRange(filters: DashboardFilters | PeriodKey): { from: string; to: string; label: string } {
-  const period = typeof filters === "string" ? filters : filters.period;
   const { from, to } = resolveDateRange(filters);
-  const fromD = new Date(from);
-  const toD = new Date(to);
-
-  if (period === "month" || period === "last_month") {
-    const pf = new Date(fromD); pf.setMonth(pf.getMonth() - 1);
-    const pt = new Date(toD); pt.setMonth(pt.getMonth() - 1);
-    return { from: pf.toISOString(), to: pt.toISOString(), label: "mês ant." };
-  }
-  if (period === "year") {
-    const pf = new Date(fromD); pf.setFullYear(pf.getFullYear() - 1);
-    const pt = new Date(toD); pt.setFullYear(pt.getFullYear() - 1);
-    return { from: pf.toISOString(), to: pt.toISOString(), label: "ano ant." };
-  }
-  const dur = Math.max(toD.getTime() - fromD.getTime(), 1);
-  return { from: new Date(fromD.getTime() - dur).toISOString(), to: from, label: "período ant." };
+  const pf = new Date(from); pf.setFullYear(pf.getFullYear() - 1);
+  const pt = new Date(to); pt.setFullYear(pt.getFullYear() - 1);
+  return { from: pf.toISOString(), to: pt.toISOString(), label: "período homólogo" };
 }

@@ -14,6 +14,7 @@ import { getGlobalFilters } from "@/lib/filters/cookie";
 import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
 import { getEmployeeTargets } from "@/lib/targets/store";
 import { formatCurrency, formatPercent } from "@/lib/utils";
+import type { Permission } from "@/types";
 
 // Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
 async function FiltersBar({ value }: { value: DashboardFilters }) {
@@ -22,9 +23,23 @@ async function FiltersBar({ value }: { value: DashboardFilters }) {
   return <GlobalFilters compact employees={employees} value={value} />;
 }
 
-export default async function EquipaPage() {
-  const session = await requireModule("equipa");
-  const filters = await getGlobalFilters();
+// Esqueleto enquanto os dados por vendedor (API Visual + margem via OData) chegam.
+function TeamSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="rounded-xl bg-bg-card border border-border h-[92px] animate-pulse" />)}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {Array.from({ length: 6 }).map((_, i) => <div key={i} className="rounded-xl bg-bg-card border border-border h-[220px] animate-pulse" />)}
+      </div>
+    </div>
+  );
+}
+
+// Conteúdo pesado (vendas/margem por vendedor) — em Suspense para não bloquear a
+// navegação: o cabeçalho e os filtros aparecem já, os cartões enchem a seguir.
+async function TeamContent({ filters, permissions }: { filters: DashboardFilters; permissions: Permission[] }) {
   const { from, to } = resolveDateRange(filters);
   // Objetivo mensal referente ao MÊS do início do período selecionado.
   const targetMonth = new Date(from);
@@ -36,23 +51,18 @@ export default async function EquipaPage() {
   const employees = rawEmployees.map((e) => ({ ...e, target: dbTargets[e.employee_id] ?? e.target }));
 
   const topSeller = employees[0];
-  const avgMargin = employees.reduce((s, e) => s + e.margin_pct, 0) / employees.length;
-  const avgDiscount = employees.reduce((s, e) => s + e.discount_avg, 0) / employees.length;
+  const avgMargin = employees.length ? employees.reduce((s, e) => s + e.margin_pct, 0) / employees.length : 0;
+  const avgDiscount = employees.length ? employees.reduce((s, e) => s + e.discount_avg, 0) / employees.length : 0;
   const totalConversions = employees.reduce((s, e) => s + e.quotes_converted, 0);
   const totalQuotes = employees.reduce((s, e) => s + e.quotes_issued, 0);
 
   return (
-    <div className="flex flex-col h-full overflow-auto">
-      <TopBar title="Equipa e Desempenho" subtitle="Performance comercial por colaborador" />
-      <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <Suspense fallback={<GlobalFilters compact value={filters} />}>
-          <FiltersBar value={filters} />
-        </Suspense>
+    <>
         <div className="flex justify-between items-center gap-3 flex-wrap">
-          {canExport(session.permissions, "equipa") && <WeeklyReportButton />}
+          {canExport(permissions, "equipa") && <WeeklyReportButton />}
           <ExportData
             title="Equipa — desempenho"
-            canExport={canExport(session.permissions, "equipa")}
+            canExport={canExport(permissions, "equipa")}
             columns={[
               { key: "name", label: "Colaborador" },
               { key: "sales_month", label: "Vendas" },
@@ -149,6 +159,24 @@ export default async function EquipaPage() {
           <p className="text-xs text-text-muted mb-4">Clica num colaborador para ver o detalhe completo.</p>
           <EmployeeDrilldown employees={employees} />
         </div>
+    </>
+  );
+}
+
+export default async function EquipaPage() {
+  const session = await requireModule("equipa");
+  const filters = await getGlobalFilters();
+
+  return (
+    <div className="flex flex-col h-full overflow-auto">
+      <TopBar title="Equipa e Desempenho" subtitle="Performance comercial por colaborador" />
+      <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
+        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+          <FiltersBar value={filters} />
+        </Suspense>
+        <Suspense fallback={<TeamSkeleton />}>
+          <TeamContent filters={filters} permissions={session.permissions} />
+        </Suspense>
       </div>
     </div>
   );
