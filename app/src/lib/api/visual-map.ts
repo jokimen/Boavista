@@ -1788,8 +1788,6 @@ export interface WeeklyOpticaReport {
   yearImprovementPct: number;
 }
 
-const OPTICA_CATS = new Set<SaleCategory>(["armacoes", "oculos_sol", "lentes_oftalmicas"]);
-
 /** Totais de faturação (com/sem IVA) de um intervalo — fetch LEVE só de cabeçalhos. */
 async function periodTotals(from: string, to: string): Promise<{ comIva: number; semIva: number }> {
   const filter = [dateRangeFilter("Fecha", new Date(from), new Date(to)), centroFilter()].filter(Boolean).join(" and ");
@@ -1830,34 +1828,25 @@ async function ytdTotals(to: string, nYears: number): Promise<{ year: number; co
 }
 
 /** Relatório SEMANAL de óptica (armações + sol + lentes oftálmicas) por vendedor. */
-export async function weeklyOpticaReport(from: string, to: string, saudeCodes: Iterable<string> = []): Promise<WeeklyOpticaReport> {
-  const [ventas, articles, classMap] = await Promise.all([
-    fetchVentas(from, to),
-    articleIndexForRange(from, to),
-    lineClasses(from, to),
-  ]);
-  const saude = new Set([...saudeCodes].map((c) => norm13(c)).filter(Boolean));
-  const bySeller = new Map<string, { sales: number; ventas: Set<string> }>();
+export async function weeklyOpticaReport(from: string, to: string): Promise<WeeklyOpticaReport> {
+  // Vendas por vendedor = TOTAL líquido de cada venda real (todas as categorias),
+  // consistente com os totais de faturação (periodTotals/weekCompare) e com o menu
+  // Equipa. (Antes somava só as linhas de categoria óptica → não batia com o total
+  // real de cada vendedor, ex.: Nuno 14.960,67.) `fetchVentas` já exclui orçamentos
+  // e abonos (isRealSale), por isso cada documento conta 1 venda.
+  const ventas = await fetchVentas(from, to);
+  const bySeller = new Map<string, { sales: number; count: number }>();
   for (const v of ventas) {
-    const ratio = lineDiscountRatio(v);
     const seller = v.Usuario || "—";
-    let opticaNet = 0;
-    for (const l of v.lineas) {
-      if (!OPTICA_CATS.has(lineCategory(v, l, classMap, saude, articles))) continue;
-      const gross = num(l.Precio_unitario) * num(l.Cantidad);
-      opticaNet += gross - num(l.Importe_descuento) - gross * ratio;
-    }
-    if (Math.abs(opticaNet) > 0.001) {
-      const cur = bySeller.get(seller) ?? { sales: 0, ventas: new Set<string>() };
-      cur.sales += opticaNet; cur.ventas.add(String(v.Codigo));
-      bySeller.set(seller, cur);
-    }
+    const cur = bySeller.get(seller) ?? { sales: 0, count: 0 };
+    cur.sales += ventaNet(v); cur.count += 1;
+    bySeller.set(seller, cur);
   }
   const total = [...bySeller.values()].reduce((s, x) => s + x.sales, 0);
   const sellers = [...bySeller.entries()]
     .map(([name, x]) => ({
-      name, sales: round(x.sales), count: x.ventas.size,
-      ticket: x.ventas.size ? round(x.sales / x.ventas.size) : 0,
+      name, sales: round(x.sales), count: x.count,
+      ticket: x.count ? round(x.sales / x.count) : 0,
       pct: total ? round((x.sales / total) * 10000) / 100 : 0,
     }))
     .sort((a, b) => b.sales - a.sales);

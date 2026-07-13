@@ -92,12 +92,12 @@ async function VendedorDetail({ usuario, from, to, allowExport }: { usuario: str
 
       {/* KPIs com variação homóloga */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KpiCard data={{ label: "Vendas", value: Math.round(c.total_sales), unit: "€", change: delta(c.total_sales, p.total_sales), changePeriod: "ano anterior", infoId: "emp-vendas" }} />
-        <KpiCard data={{ label: "ROI (margem €)", value: Math.round(c.margin_eur), unit: "€", change: delta(c.margin_eur, p.margin_eur), changePeriod: "ano anterior", infoId: "emp-roi" }} />
-        <KpiCard data={{ label: "Ticket Médio", value: Math.round(c.avg_ticket), unit: "€", change: delta(c.avg_ticket, p.avg_ticket), changePeriod: "ano anterior", infoId: "kpi-ticket" }} />
-        <KpiCard data={{ label: "Nº Vendas", value: c.num_ventas, unit: "", change: delta(c.num_ventas, p.num_ventas), changePeriod: "ano anterior", infoId: "kpi-num-vendas" }} />
+        <KpiCard data={{ label: "Vendas", value: Math.round(c.total_sales), unit: "€", change: delta(c.total_sales, p.total_sales), changePeriod: "período homólogo", infoId: "emp-vendas" }} />
+        <KpiCard data={{ label: "ROI (margem €)", value: Math.round(c.margin_eur), unit: "€", change: delta(c.margin_eur, p.margin_eur), changePeriod: "período homólogo", infoId: "emp-roi" }} />
+        <KpiCard data={{ label: "Ticket Médio", value: Math.round(c.avg_ticket), unit: "€", change: delta(c.avg_ticket, p.avg_ticket), changePeriod: "período homólogo", infoId: "kpi-ticket" }} />
+        <KpiCard data={{ label: "Nº Vendas", value: c.num_ventas, unit: "", change: delta(c.num_ventas, p.num_ventas), changePeriod: "período homólogo", infoId: "kpi-num-vendas" }} />
         <KpiCard data={{ label: "Margem %", value: c.margin_pct, unit: "%", infoId: "kpi-margem-pct" }} />
-        <KpiCard data={{ label: "Orç. convertidos", value: c.quotes_converted, unit: "", change: delta(c.quotes_converted, p.quotes_converted), changePeriod: "ano anterior", infoId: "emp-orcamentos" }} />
+        <KpiCard data={{ label: "Orç. convertidos", value: c.quotes_converted, unit: "", change: delta(c.quotes_converted, p.quotes_converted), changePeriod: "período homólogo", infoId: "emp-orcamentos" }} />
       </div>
 
       {/* Armações/Sol + Lentes + Orçamentos */}
