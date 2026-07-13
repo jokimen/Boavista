@@ -141,7 +141,7 @@ async function VendedorDetail({ usuario, from, to, allowExport }: { usuario: str
 
       {/* Marcas + Fornecedores */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Marcas que mais vende" hint="Top marcas por unidades no período." info="emp-marcas">
+        <Card title="Marcas que mais vende" hint="Top marcas de armações e óculos de sol por unidades." info="emp-marcas">
           <DataTable
             data={c.top_brands.map((b, i) => ({ ...b, id: `${i}-${b.label}` }))}
             keyField="id"

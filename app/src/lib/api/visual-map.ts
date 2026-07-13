@@ -1839,9 +1839,11 @@ export interface WeeklyOpticaReport {
  * (REST `FacturasClientes`), NÃO das vendas. `sem IVA = Σ Base_imponible`;
  * `com IVA = Σ (Base_imponible + Importe_IVA)`. Somam-se TODAS as faturas
  * (FR recibo à seguradora / FT fatura cliente / NC nota de crédito): as NC
- * (negativas) anulam as FR → dá o faturado real. Validado contra os números da
- * loja (semana 06-11/07): 2025 SEM 40 851,49 / COM 45 349,77; 2026 SEM
- * 79 664,75 / COM 87 502,08.
+ * (negativas) anulam as FR → dá o faturado real. **Excluem-se os documentos com
+ * IVA=0** (faturas especiais/não-retalho, ex.: FRA à mobiliária) — a faturação
+ * oficial da loja não os conta. Validado ao cêntimo (semana 06-11/07, 4 anos):
+ * 2023 SEM 59 155/COM 65 355,40; 2024 SEM 43 334,78/COM 47 800,40; 2025 SEM
+ * 40 851,49/COM 45 349,77; 2026 SEM 79 664,75/COM 87 502,08.
  */
 async function periodTotals(from: string, to: string): Promise<{ comIva: number; semIva: number }> {
   const filter = [dateRangeFilter("Fecha", new Date(from), new Date(to)), centroFilter()].filter(Boolean).join(" and ");
@@ -1852,8 +1854,10 @@ async function periodTotals(from: string, to: string): Promise<{ comIva: number;
   );
   let semIva = 0, comIva = 0;
   for (const f of faturas) {
+    const iva = num(f.Importe_IVA);
+    if (iva === 0) continue; // exclui docs sem IVA (não são faturação de retalho)
     const base = num(f.Base_imponible);
-    semIva += base; comIva += base + num(f.Importe_IVA);
+    semIva += base; comIva += base + iva;
   }
   return { comIva: round(comIva), semIva: round(semIva) };
 }
@@ -2692,7 +2696,8 @@ async function employeeAnalyticsFor(usuario: string, from: string, to: string): 
   for (const l of mine) {
     base.total_sales += l.net; base.total_qty += l.qty; ventaSet.add(l.ventaCodigo);
     if (l.cost != null) { coveredNet += l.net; cost += l.cost; }
-    bump(brandAgg, l.brand, l.qty, l.net);
+    // "Marcas que mais vende" = SÓ armações (G) e óculos de sol (S).
+    if (l.clase === "G" || l.clase === "S") bump(brandAgg, l.brand, l.qty, l.net);
     if (l.proveedor) bump(supAgg, l.proveedor, l.qty, l.net);
     if (l.clase === "G") { base.frames_sales += l.net; base.frames_qty += l.qty; }
     else if (l.clase === "S") { base.sun_sales += l.net; base.sun_qty += l.qty; }
