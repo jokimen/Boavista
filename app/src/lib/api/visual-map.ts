@@ -1887,6 +1887,12 @@ async function ytdTotals(to: string, nYears: number): Promise<{ year: number; co
   return out;
 }
 
+// Vendedores de balcão que APARECEM no relatório (Usuario do Visual). Os restantes
+// (clínica/caixa: Conceição, Ana, MROSA, PG…) contam para o TOTAL (denominador das
+// %) mas não são mostrados na lista.
+const OPTICA_SALES_TEAM = new Set(["ALDINA", "ELISA", "FATIMA", "GISLAINE", "MARTA", "JOSE", "NUNO", "VITOR"]);
+const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
+
 /** Relatório SEMANAL de óptica (armações + sol + lentes oftálmicas) por vendedor. */
 export async function weeklyOpticaReport(from: string, to: string): Promise<WeeklyOpticaReport> {
   // Vendas por vendedor = TOTAL líquido de cada venda real (todas as categorias),
@@ -1902,8 +1908,12 @@ export async function weeklyOpticaReport(from: string, to: string): Promise<Week
     cur.sales += ventaNet(v); cur.count += 1;
     bySeller.set(seller, cur);
   }
+  // A % é sobre o total de TODOS (balcão + clínica/caixa); mas só a equipa de
+  // vendas (balcão) APARECE na lista — as suas % não somam 100% (o resto é a
+  // clínica/caixa, que conta para o denominador mas não é mostrada).
   const total = [...bySeller.values()].reduce((s, x) => s + x.sales, 0);
   const sellers = [...bySeller.entries()]
+    .filter(([name]) => OPTICA_SALES_TEAM.has(normName(name)))
     .map(([name, x]) => ({
       name, sales: round(x.sales), count: x.count,
       ticket: x.count ? round(x.sales / x.count) : 0,
