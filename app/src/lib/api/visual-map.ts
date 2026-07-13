@@ -1875,13 +1875,16 @@ async function yearTotalsForRange(from: string, to: string, nYears: number): Pro
   return out;
 }
 
-/** Acumulado do ano (1 jan → dia de `to`) com IVA, nos últimos `nYears` anos. */
+/** Acumulado do ano (1 jan → dia de `to`) com IVA, nos últimos `nYears` anos.
+ *  `to` já é o limite EXCLUSIVO (dia seguinte ao "Até"), por isso usa-se
+ *  `toD.getDate()` tal-qual — NÃO `+1` (senão o anual incluía um dia a mais que
+ *  o período do relatório: ex. 12/07/2025 = sábado com ~18 640€ → 2025 saía +19k). */
 async function ytdTotals(to: string, nYears: number): Promise<{ year: number; comIva: number }[]> {
   const toD = new Date(to);
   const out: { year: number; comIva: number }[] = [];
   for (let k = nYears - 1; k >= 0; k--) {
     const y = toD.getFullYear() - k;
-    const tot = await periodTotals(new Date(y, 0, 1).toISOString(), new Date(y, toD.getMonth(), toD.getDate() + 1).toISOString());
+    const tot = await periodTotals(new Date(y, 0, 1).toISOString(), new Date(y, toD.getMonth(), toD.getDate()).toISOString());
     out.push({ year: y, comIva: tot.comIva });
   }
   return out;
