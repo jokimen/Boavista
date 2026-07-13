@@ -79,16 +79,10 @@ export function buildWeeklyOpticaPdf(data: WeeklyOpticaReport): jsPDF {
   rankingRows(doc, ranked.map((s) => ({ name: s.name, value: `${fmt(s.pct, 2)}%` })), 95);
   pageNumber(doc, pg);
 
-  // ── P7: Ranking por % de contribuição — SEM a Elisa (% recalculada s/ Elisa) ──
+  // ── P7: igual à P6, apenas SEM a linha da Elisa (mesmas % — NÃO recalcular) ──
   newPage(); decorHeader(doc);
   sectionTitle(doc, ["MELHORES VENDEDORES", "DO PERÍODO (SEM ELISA)", range], 50);
-  const semElisa = data.sellers.filter((s) => !/elisa/i.test(s.name));
-  const totalSemElisa = semElisa.reduce((sum, s) => sum + s.sales, 0) || 1;
-  const rankedSemElisa = semElisa
-    .map((s) => ({ name: s.name, pct: (s.sales / totalSemElisa) * 100 }))
-    .filter((s) => s.pct > 0)
-    .sort((a, b) => b.pct - a.pct)
-    .slice(0, 8);
+  const rankedSemElisa = ranked.filter((s) => !/elisa/i.test(s.name));
   rankingRows(doc, rankedSemElisa.map((s) => ({ name: s.name, value: `${fmt(s.pct, 2)}%` })), 95);
   pageNumber(doc, pg);
 
