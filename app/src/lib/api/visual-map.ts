@@ -2396,11 +2396,18 @@ interface SupLine {
   age: number | null;
 }
 
+// Enriquecimento pesado (OData): cacheado 5 min por intervalo — abrir vários
+// vendedores/fornecedores do MESMO intervalo reusa o cálculo (só o 1º é lento).
+// NÃO usar VENTAS_TTL_MS (60s, mantém as vendas ao vivo) aqui.
+const SUPPLIER_LINES_TTL_MS = 5 * 60_000;
 const supplierLinesCache = new Map<string, { promise: Promise<SupLine[]>; expires: number }>();
 
-/** Linhas de venda do período enriquecidas (fornecedor, taxonomia, custo, comprador). Cacheado 60s. */
-async function supplierLines(from: string, to: string): Promise<SupLine[]> {
-  const key = `${from}|${to}`;
+/** Linhas de venda do período enriquecidas (fornecedor, taxonomia, custo, comprador). Cacheado 5 min. */
+async function supplierLines(from: string, to: string, withDemographics = true): Promise<SupLine[]> {
+  // A demografia (género/idade do comprador) obriga a carregar os ~10k clientes.
+  // Só o menu de Fornecedores a usa — o detalhe do vendedor NÃO → pode saltá-la
+  // (evita o carregamento dos 10k clientes no caminho do vendedor).
+  const key = `${from}|${to}|${withDemographics ? "d" : "n"}`;
   const hit = supplierLinesCache.get(key);
   if (hit && hit.expires > Date.now()) return hit.promise;
   const promise = (async () => {
@@ -2408,7 +2415,7 @@ async function supplierLines(from: string, to: string): Promise<SupLine[]> {
       fetchVentas(from, to),
       articleIndexForRange(from, to),
       lineEntryCosts(from, to),
-      loadClientDemographics(),
+      withDemographics ? loadClientDemographics() : Promise.resolve(new Map<string, { sexo: DemoGender; birthYear: number | null }>()),
     ]);
     const codes = [...new Set(ventas.map((v) => Number(v.Codigo)))].filter(Boolean);
     const details = await lineSalesDetailsForVentas(codes);
@@ -2468,7 +2475,7 @@ async function supplierLines(from: string, to: string): Promise<SupLine[]> {
     console.error("supplierLines falhou:", e instanceof Error ? e.message : e);
     return [] as SupLine[];
   });
-  supplierLinesCache.set(key, { promise, expires: Date.now() + VENTAS_TTL_MS });
+  supplierLinesCache.set(key, { promise, expires: Date.now() + SUPPLIER_LINES_TTL_MS });
   return promise;
 }
 
@@ -2665,7 +2672,7 @@ const PENDING_ESTADOS = new Set(["T", "I", "H", "C", "J"]);
 
 async function employeeAnalyticsFor(usuario: string, from: string, to: string): Promise<EmployeeAnalytics> {
   const [lines, quotes, convertedCodes] = await Promise.all([
-    supplierLines(from, to),
+    supplierLines(from, to, false), // sem demografia (não usada aqui) → não carrega os 10k clientes
     fetchVentas(from, to, true).then((all) => all.filter((v) => v.Es_presupuesto === "S")),
     convertedBudgetCodes(from, to),
   ]);
@@ -2723,14 +2730,25 @@ export interface EmployeeAnalyticsYoY {
   previous: EmployeeAnalytics; // mesmo período do ano anterior
 }
 
-/** Análise de um vendedor no período + o MESMO período do ano anterior (homólogo). */
+const employeeAnalyticsCache = new Map<string, { promise: Promise<EmployeeAnalyticsYoY>; expires: number }>();
+
+/** Análise de um vendedor no período + o MESMO período do ano anterior (homólogo).
+ *  Cacheado 5 min (reabrir o mesmo vendedor é instantâneo; o enriquecimento
+ *  pesado é ainda partilhado entre vendedores via supplierLines). */
 export async function employeeAnalytics(usuario: string, from: string, to: string): Promise<EmployeeAnalyticsYoY> {
+  const key = `${usuario}|${from}|${to}`;
+  const hit = employeeAnalyticsCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.promise;
   const shift = (iso: string) => { const d = new Date(iso); d.setFullYear(d.getFullYear() - 1); return d.toISOString(); };
-  const [current, previous] = await Promise.all([
-    employeeAnalyticsFor(usuario, from, to),
-    employeeAnalyticsFor(usuario, shift(from), shift(to)),
-  ]);
-  return { current, previous };
+  const promise = (async () => {
+    const [current, previous] = await Promise.all([
+      employeeAnalyticsFor(usuario, from, to),
+      employeeAnalyticsFor(usuario, shift(from), shift(to)),
+    ]);
+    return { current, previous };
+  })().catch((e) => { employeeAnalyticsCache.delete(key); throw e; });
+  employeeAnalyticsCache.set(key, { promise, expires: Date.now() + SUPPLIER_LINES_TTL_MS });
+  return promise;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
