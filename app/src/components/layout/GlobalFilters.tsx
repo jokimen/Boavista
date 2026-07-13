@@ -34,9 +34,11 @@ interface GlobalFiltersProps {
   employees?: { value: string; label: string }[];
   /** Estado atual do filtro global (lido do cookie no servidor). */
   value?: DashboardFilters;
+  /** Esconde o seletor de período/datas (ex.: na Equipa, as datas vêm dos campos De/Até junto aos PDF). */
+  hidePeriod?: boolean;
 }
 
-export function GlobalFilters({ compact, employees = [], value }: GlobalFiltersProps) {
+export function GlobalFilters({ compact, employees = [], value, hidePeriod }: GlobalFiltersProps) {
   const router = useRouter();
   const current = value ?? DEFAULT_FILTERS;
 
@@ -71,19 +73,21 @@ export function GlobalFilters({ compact, employees = [], value }: GlobalFiltersP
   return (
     <div className={compact ? "flex items-center gap-2 flex-wrap" : "flex items-center gap-3 flex-wrap"}>
       {compact && <Filter size={14} className="text-text-muted shrink-0" />}
-      <Select
-        options={PERIOD_OPTIONS}
-        value={period}
-        onChange={(v) => {
-          setPeriod(v as DashboardFilters["period"]);
-          // Ao sair de "custom" limpa as datas; ao entrar mantém as que houver.
-          commit({ period: v as DashboardFilters["period"], from: v === "custom" ? fromDate : undefined, to: v === "custom" ? toDate : undefined, employee, category });
-        }}
-        className={cls}
-        label={label("Período")}
-      />
+      {!hidePeriod && (
+        <Select
+          options={PERIOD_OPTIONS}
+          value={period}
+          onChange={(v) => {
+            setPeriod(v as DashboardFilters["period"]);
+            // Ao sair de "custom" limpa as datas; ao entrar mantém as que houver.
+            commit({ period: v as DashboardFilters["period"], from: v === "custom" ? fromDate : undefined, to: v === "custom" ? toDate : undefined, employee, category });
+          }}
+          className={cls}
+          label={label("Período")}
+        />
+      )}
 
-      {period === "custom" && (
+      {!hidePeriod && period === "custom" && (
         <div className="flex items-center gap-2">
           <input
             type="date"

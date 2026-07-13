@@ -11,16 +11,20 @@ import { canExport } from "@/lib/auth/permissions";
 import { fetchSalesByEmployee, fetchEmployees } from "@/lib/api/adapter";
 import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { getGlobalFilters } from "@/lib/filters/cookie";
-import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { type DashboardFilters } from "@/lib/filters/range";
 import { getEmployeeTargets } from "@/lib/targets/store";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 import type { Permission } from "@/types";
 
-// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isYmd = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+// Barra de filtros — colaboradores/categoria (SEM data: o intervalo vem dos campos
+// De/Até junto aos botões de PDF). Colaboradores via API (lentos no 1º load).
 async function FiltersBar({ value }: { value: DashboardFilters }) {
   let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
   try { employees = await fetchEmployees(); } catch { employees = []; }
-  return <GlobalFilters compact employees={employees} value={value} />;
+  return <GlobalFilters compact hidePeriod employees={employees} value={value} />;
 }
 
 // Esqueleto enquanto os dados por vendedor (API Visual + margem via OData) chegam.
@@ -38,13 +42,14 @@ function TeamSkeleton() {
 }
 
 // Conteúdo pesado (vendas/margem por vendedor) — em Suspense para não bloquear a
-// navegação: o cabeçalho e os filtros aparecem já, os cartões enchem a seguir.
-async function TeamContent({ filters, permissions }: { filters: DashboardFilters; permissions: Permission[] }) {
-  const { from, to } = resolveDateRange(filters);
+// navegação. Recebe o intervalo [fromISO, toISO) resolvido dos campos De/Até (URL).
+async function TeamContent({ fromISO, toISO, fromYmd, toYmd, permissions }: {
+  fromISO: string; toISO: string; fromYmd: string; toYmd: string; permissions: Permission[];
+}) {
   // Objetivo mensal referente ao MÊS do início do período selecionado.
-  const targetMonth = new Date(from);
+  const targetMonth = new Date(fromISO);
   const [rawEmployees, dbTargets] = await Promise.all([
-    fetchSalesByEmployee(from, to),
+    fetchSalesByEmployee(fromISO, toISO),
     getEmployeeTargets(targetMonth.getFullYear(), targetMonth.getMonth() + 1).catch(() => ({} as Record<string, number>)),
   ]);
   // Objetivo por vendedor definido no Admin tem prioridade sobre o fallback (env).
@@ -55,11 +60,11 @@ async function TeamContent({ filters, permissions }: { filters: DashboardFilters
   const avgDiscount = employees.length ? employees.reduce((s, e) => s + e.discount_avg, 0) / employees.length : 0;
   const totalConversions = employees.reduce((s, e) => s + e.quotes_converted, 0);
   const totalQuotes = employees.reduce((s, e) => s + e.quotes_issued, 0);
+  const detailQuery = `?from=${fromYmd}&to=${toYmd}`;
 
   return (
     <>
-        <div className="flex justify-between items-center gap-3 flex-wrap">
-          {canExport(permissions, "equipa") && <WeeklyReportButton />}
+        <div className="flex justify-end items-center gap-3 flex-wrap">
           <ExportData
             title="Equipa — desempenho"
             canExport={canExport(permissions, "equipa")}
@@ -89,7 +94,7 @@ async function TeamContent({ filters, permissions }: { filters: DashboardFilters
             const hasTarget = emp.target > 0;
             const targetPct = hasTarget ? (emp.sales_month / emp.target) * 100 : 0;
             return (
-              <Link key={emp.employee_id} href={`/equipa/${encodeURIComponent(emp.employee_id)}`}
+              <Link key={emp.employee_id} href={`/equipa/${encodeURIComponent(emp.employee_id)}${detailQuery}`}
                 className="block rounded-xl bg-bg-card border border-border p-4 hover:border-border-subtle hover:bg-bg-card-hover transition-colors">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -163,19 +168,31 @@ async function TeamContent({ filters, permissions }: { filters: DashboardFilters
   );
 }
 
-export default async function EquipaPage() {
+export default async function EquipaPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
   const session = await requireModule("equipa");
   const filters = await getGlobalFilters();
+  const sp = await searchParams;
+
+  // Intervalo APENAS dos campos De/Até (URL). Default: últimos 7 dias (até ontem).
+  const now = new Date();
+  const fromYmd = isYmd(sp.from) ? sp.from : ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
+  const toYmd = isYmd(sp.to) ? sp.to : ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const [fy, fm, fd] = fromYmd.split("-").map(Number);
+  const [ty, tm, td] = toYmd.split("-").map(Number);
+  const fromISO = new Date(fy, fm - 1, fd).toISOString();
+  const toISO = new Date(ty, tm - 1, td + 1).toISOString(); // dia seguinte (exclusivo) → inclui o "Até"
 
   return (
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title="Equipa e Desempenho" subtitle="Performance comercial por colaborador" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+        {/* Datas De/Até (comandam o intervalo do menu) + PDF */}
+        <WeeklyReportButton initialFrom={fromYmd} initialTo={toYmd} canExport={canExport(session.permissions, "equipa")} />
+        <Suspense fallback={<GlobalFilters compact hidePeriod value={filters} />}>
           <FiltersBar value={filters} />
         </Suspense>
-        <Suspense fallback={<TeamSkeleton />}>
-          <TeamContent filters={filters} permissions={session.permissions} />
+        <Suspense key={`${fromYmd}-${toYmd}`} fallback={<TeamSkeleton />}>
+          <TeamContent fromISO={fromISO} toISO={toISO} fromYmd={fromYmd} toYmd={toYmd} permissions={session.permissions} />
         </Suspense>
       </div>
     </div>

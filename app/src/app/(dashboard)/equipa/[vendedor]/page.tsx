@@ -6,7 +6,7 @@ import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { DataTable } from "@/components/tables/DataTable";
 import { SplitBars } from "@/components/charts/SplitBars";
 import { ChartInfo } from "@/components/charts/ChartInfo";
-import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { type DashboardFilters } from "@/lib/filters/range";
 import { getGlobalFilters } from "@/lib/filters/cookie";
 import { employeeAnalytics, type EmployeeAnalytics } from "@/lib/api/visual-map";
 import { fetchEmployees } from "@/lib/api/adapter";
@@ -14,11 +14,14 @@ import { canExport } from "@/lib/auth/permissions";
 import { EmployeeExport } from "./EmployeeExport";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isYmd = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+// Barra de filtros — colaboradores/categoria (SEM data: o intervalo vem do menu Equipa). Em Suspense.
 async function FiltersBar({ value }: { value: DashboardFilters }) {
   let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
   try { employees = await fetchEmployees(); } catch { employees = []; }
-  return <GlobalFilters compact employees={employees} value={value} />;
+  return <GlobalFilters compact hidePeriod employees={employees} value={value} />;
 }
 
 const delta = (cur: number, prev: number): number =>
@@ -26,23 +29,34 @@ const delta = (cur: number, prev: number): number =>
 
 export default async function VendedorDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ vendedor: string }>;
+  searchParams: Promise<{ from?: string; to?: string }>;
 }) {
   const session = await requireModule("equipa");
   const { vendedor } = await params;
   const filters = await getGlobalFilters();
-  const { from, to } = resolveDateRange(filters);
+  const sp = await searchParams;
   const allowExport = canExport(session.permissions, "equipa");
+
+  // Intervalo herdado do menu Equipa (URL ?from&to). Default: últimos 7 dias.
+  const now = new Date();
+  const fromYmd = isYmd(sp.from) ? sp.from : ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
+  const toYmd = isYmd(sp.to) ? sp.to : ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const [fy, fm, fd] = fromYmd.split("-").map(Number);
+  const [ty, tm, td] = toYmd.split("-").map(Number);
+  const from = new Date(fy, fm - 1, fd).toISOString();
+  const to = new Date(ty, tm - 1, td + 1).toISOString();
 
   return (
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title={decodeURIComponent(vendedor)} subtitle="Análise do vendedor vs período homólogo (ano anterior)" backHref="/equipa" />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-        <Suspense fallback={<GlobalFilters compact value={filters} />}>
+        <Suspense fallback={<GlobalFilters compact hidePeriod value={filters} />}>
           <FiltersBar value={filters} />
         </Suspense>
-        <Suspense fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar análise do vendedor…</div>}>
+        <Suspense key={`${fromYmd}-${toYmd}`} fallback={<div className="text-sm text-text-muted py-10 text-center">A carregar análise do vendedor…</div>}>
           <VendedorDetail usuario={decodeURIComponent(vendedor)} from={from} to={to} allowExport={allowExport} />
         </Suspense>
       </div>

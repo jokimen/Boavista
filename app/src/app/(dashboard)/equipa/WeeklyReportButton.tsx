@@ -1,19 +1,35 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { FileDown } from "lucide-react";
 
 const iso = (d: Date) => d.toISOString();
-const ymd = (d: Date) => d.toISOString().split("T")[0];
 
 type Kind = "optica" | "clinica";
 
-export function WeeklyReportButton() {
-  // por defeito: últimos 7 dias (até ontem)
-  const [from, setFrom] = useState<string>(() => ymd(new Date(Date.now() - 7 * 86400000)));
-  const [to, setTo] = useState<string>(() => ymd(new Date(Date.now() - 86400000)));
+/**
+ * Campos De/Até + botões de PDF da Equipa. As datas são a ÚNICA fonte do
+ * intervalo do menu Equipa: ao mudá-las, sincroniza-se a URL (?from&to) e o
+ * servidor recalcula os dados dos vendedores para esse intervalo (e os PDF usam
+ * o mesmo intervalo). Os botões de PDF só aparecem com permissão de exportação;
+ * os campos de data aparecem sempre (comandam a página).
+ */
+export function WeeklyReportButton({ initialFrom, initialTo, canExport }: { initialFrom: string; initialTo: string; canExport: boolean }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [from, setFrom] = useState<string>(initialFrom);
+  const [to, setTo] = useState<string>(initialTo);
   const [busy, setBusy] = useState<Kind | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Aplica o intervalo na URL → o servidor recalcula os dados da Equipa.
+  function applyRange(nextFrom: string, nextTo: string) {
+    setFrom(nextFrom); setTo(nextTo);
+    if (nextFrom && nextTo && nextFrom <= nextTo) {
+      router.replace(`${pathname}?from=${nextFrom}&to=${nextTo}`, { scroll: false });
+    }
+  }
 
   async function gen(kind: Kind) {
     setErr(null);
@@ -46,15 +62,19 @@ export function WeeklyReportButton() {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <label className="text-xs text-text-muted">De</label>
-      <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className={inp} />
+      <input type="date" value={from} max={to} onChange={(e) => applyRange(e.target.value, to)} className={inp} />
       <label className="text-xs text-text-muted">Até</label>
-      <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className={inp} />
-      <button onClick={() => gen("optica")} disabled={!!busy} className={btn}>
-        <FileDown size={15} /> {busy === "optica" ? "A gerar…" : "PDF Óptica"}
-      </button>
-      <button onClick={() => gen("clinica")} disabled={!!busy} className={btn}>
-        <FileDown size={15} /> {busy === "clinica" ? "A gerar…" : "PDF Clínica"}
-      </button>
+      <input type="date" value={to} min={from} onChange={(e) => applyRange(from, e.target.value)} className={inp} />
+      {canExport && (
+        <>
+          <button onClick={() => gen("optica")} disabled={!!busy} className={btn}>
+            <FileDown size={15} /> {busy === "optica" ? "A gerar…" : "PDF Óptica"}
+          </button>
+          <button onClick={() => gen("clinica")} disabled={!!busy} className={btn}>
+            <FileDown size={15} /> {busy === "clinica" ? "A gerar…" : "PDF Clínica"}
+          </button>
+        </>
+      )}
       {err && <span className="text-xs text-[#ef4444]">{err}</span>}
     </div>
   );
