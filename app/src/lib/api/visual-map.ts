@@ -1834,16 +1834,26 @@ export interface WeeklyOpticaReport {
   yearImprovementPct: number;
 }
 
-/** Totais de faturação (com/sem IVA) de um intervalo — fetch LEVE só de cabeçalhos. */
+/**
+ * Totais de FATURAÇÃO (com/sem IVA) de um intervalo — SOMA das faturas emitidas
+ * (REST `FacturasClientes`), NÃO das vendas. `sem IVA = Σ Base_imponible`;
+ * `com IVA = Σ (Base_imponible + Importe_IVA)`. Somam-se TODAS as faturas
+ * (FR recibo à seguradora / FT fatura cliente / NC nota de crédito): as NC
+ * (negativas) anulam as FR → dá o faturado real. Validado contra os números da
+ * loja (semana 06-11/07): 2025 SEM 40 851,49 / COM 45 349,77; 2026 SEM
+ * 79 664,75 / COM 87 502,08.
+ */
 async function periodTotals(from: string, to: string): Promise<{ comIva: number; semIva: number }> {
   const filter = [dateRangeFilter("Fecha", new Date(from), new Date(to)), centroFilter()].filter(Boolean).join(" and ");
-  const fields = ["Fecha", "Centro", "Es_presupuesto", "Importe_bruto", "Importe_IVA", "Importe_descuento_lineas", "Importe_DescuentoGlobal"];
-  const ventas = await selectAll<VisualVenta>("Ventas", { filter, fields }, 2000);
+  // A REST FacturasClientes exige o campo-chave `Codigo` na lista de fields.
+  const fields = ["Codigo", "Fecha", "Centro", "Base_imponible", "Importe_IVA"];
+  const faturas = await selectAll<{ Base_imponible?: string | number; Importe_IVA?: string | number }>(
+    "FacturasClientes", { filter, fields }, 1000,
+  );
   let semIva = 0, comIva = 0;
-  for (const v of ventas) {
-    if (v.Es_presupuesto === "S") continue;
-    const net = num(v.Importe_bruto) - num(v.Importe_descuento_lineas) - num(v.Importe_DescuentoGlobal);
-    semIva += net; comIva += net + num(v.Importe_IVA);
+  for (const f of faturas) {
+    const base = num(f.Base_imponible);
+    semIva += base; comIva += base + num(f.Importe_IVA);
   }
   return { comIva: round(comIva), semIva: round(semIva) };
 }

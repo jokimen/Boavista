@@ -6,7 +6,7 @@ import { jsPDF } from "jspdf";
 import type { WeeklyOpticaReport } from "@/lib/api/visual-map";
 import {
   decorHeader, pageNumber, sectionTitle, topThreeBlock, vBarChart, legend,
-  rankingRows, fmt, SERIES, NAVY, CORAL, GREYTXT, PAGE_W,
+  rankingRows, fmt, SERIES, NAVY, CORAL, PAGE_W,
 } from "./pdf-kit";
 
 const MESES = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"];
@@ -56,10 +56,10 @@ export function buildWeeklyOpticaPdf(data: WeeklyOpticaReport): jsPDF {
   newPage(); decorHeader(doc);
   sectionTitle(doc, ["COMPARATIVA DE FATURAÇÃO", range], 50);
   text(doc, NAVY); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
-  doc.text("VENDAS COM IVA", PAGE_W / 2, 78, { align: "center" });
+  doc.text("FATURAÇÃO COM IVA", PAGE_W / 2, 78, { align: "center" });
   vBarChart(doc, data.weekCompare.map((y) => ({ label: String(y.year), value: y.comIva, color: CORAL })), { x: 55, y: 84, w: 100, h: 55 });
   doc.setFont("helvetica", "bold"); doc.setFontSize(13); text(doc, NAVY);
-  doc.text("VENDAS SEM IVA", PAGE_W / 2, 172, { align: "center" });
+  doc.text("FATURAÇÃO SEM IVA", PAGE_W / 2, 172, { align: "center" });
   vBarChart(doc, data.weekCompare.map((y) => ({ label: String(y.year), value: y.semIva, color: CORAL })), { x: 55, y: 178, w: 100, h: 55 });
   pageNumber(doc, pg);
 
@@ -77,6 +77,19 @@ export function buildWeeklyOpticaPdf(data: WeeklyOpticaReport): jsPDF {
   sectionTitle(doc, ["MELHORES VENDEDORES", "DO PERÍODO", range], 50);
   const ranked = [...data.sellers].filter((s) => s.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 8);
   rankingRows(doc, ranked.map((s) => ({ name: s.name, value: `${fmt(s.pct, 2)}%` })), 95);
+  pageNumber(doc, pg);
+
+  // ── P7: Ranking por % de contribuição — SEM a Elisa (% recalculada s/ Elisa) ──
+  newPage(); decorHeader(doc);
+  sectionTitle(doc, ["MELHORES VENDEDORES", "DO PERÍODO (SEM ELISA)", range], 50);
+  const semElisa = data.sellers.filter((s) => !/elisa/i.test(s.name));
+  const totalSemElisa = semElisa.reduce((sum, s) => sum + s.sales, 0) || 1;
+  const rankedSemElisa = semElisa
+    .map((s) => ({ name: s.name, pct: (s.sales / totalSemElisa) * 100 }))
+    .filter((s) => s.pct > 0)
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 8);
+  rankingRows(doc, rankedSemElisa.map((s) => ({ name: s.name, value: `${fmt(s.pct, 2)}%` })), 95);
   pageNumber(doc, pg);
 
   return doc;
