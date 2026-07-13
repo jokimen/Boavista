@@ -1912,12 +1912,19 @@ export async function weeklyOpticaReport(from: string, to: string): Promise<Week
   // vendas (balcão) APARECE na lista — as suas % não somam 100% (o resto é a
   // clínica/caixa, que conta para o denominador mas não é mostrada).
   const total = [...bySeller.values()].reduce((s, x) => s + x.sales, 0);
-  const sellers = [...bySeller.entries()]
-    .filter(([name]) => OPTICA_SALES_TEAM.has(normName(name)))
-    .map(([name, x]) => ({
-      name, sales: round(x.sales), count: x.count,
-      ticket: x.count ? round(x.sales / x.count) : 0,
-      pct: total ? round((x.sales / total) * 10000) / 100 : 0,
+  // Índice da equipa por nome normalizado (casa com o Usuario real do Visual).
+  const teamByNorm = new Map<string, { name: string; sales: number; count: number }>();
+  for (const [name, x] of bySeller) {
+    const n = normName(name);
+    if (OPTICA_SALES_TEAM.has(n)) teamByNorm.set(n, { name, sales: x.sales, count: x.count });
+  }
+  // TODOS os vendedores de balcão aparecem SEMPRE — 0 (e 0%) quando não têm vendas.
+  const sellers = [...OPTICA_SALES_TEAM]
+    .map((n) => teamByNorm.get(n) ?? { name: n, sales: 0, count: 0 })
+    .map((d) => ({
+      name: d.name, sales: round(d.sales), count: d.count,
+      ticket: d.count ? round(d.sales / d.count) : 0,
+      pct: total ? round((d.sales / total) * 10000) / 100 : 0,
     }))
     .sort((a, b) => b.sales - a.sales);
 

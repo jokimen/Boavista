@@ -75,7 +75,7 @@ export function buildWeeklyOpticaPdf(data: WeeklyOpticaReport): jsPDF {
   // ── P6: Ranking por % de contribuição ───────────────────────────────────────
   newPage(); decorHeader(doc);
   sectionTitle(doc, ["MELHORES VENDEDORES", "DO PERÍODO", range], 50);
-  const ranked = [...data.sellers].filter((s) => s.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 8);
+  const ranked = [...data.sellers].sort((a, b) => b.pct - a.pct).slice(0, 8);
   rankingRows(doc, ranked.map((s) => ({ name: s.name, value: `${fmt(s.pct, 2)}%` })), 95);
   pageNumber(doc, pg);
 
