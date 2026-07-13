@@ -3,7 +3,7 @@ import { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { requireSuperadmin } from "@/lib/auth/api-session";
 import { logAudit } from "@/lib/auth/audit";
-import { SUPPLIER_GROUPS } from "@/lib/suppliers/constants";
+import { SUPPLIER_GROUPS, encodeSupplierId } from "@/lib/suppliers/constants";
 
 const tierSchema = z.object({ min: z.number().nonnegative(), pct: z.number().min(0).max(100) });
 
@@ -41,7 +41,8 @@ export async function POST(req: Request) {
 
   const col = adminDb.collection("supplier_config");
   // Remove apenas os docs que existiam e ficaram sem config (não milhares inexistentes).
-  const keep = new Set(rows.map((r) => r.proveedor));
+  // Os ids são codificados (o "/" não pode ser id no Firestore) — comparar no mesmo espaço.
+  const keep = new Set(rows.map((r) => encodeSupplierId(r.proveedor)));
   let toDelete: string[] = [];
   try {
     const existing = await col.get();
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
   // Operações em lotes de ≤450 (limite de 500 do batch do Firestore).
   type Op = { set: Record<string, unknown> } | { del: true };
   const ops: { id: string; op: Op }[] = [
-    ...rows.map((r) => ({ id: r.proveedor, op: { set: r } as Op })),
+    ...rows.map((r) => ({ id: encodeSupplierId(r.proveedor), op: { set: r } as Op })),
     ...toDelete.map((id) => ({ id, op: { del: true } as Op })),
   ];
   try {

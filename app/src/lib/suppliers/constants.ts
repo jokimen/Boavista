@@ -21,6 +21,19 @@ export interface SupplierConfigRow {
 
 export type SupplierConfig = Record<string, SupplierConfigRow>;
 
+/**
+ * Alguns códigos de fornecedor do Visual têm "/" (ex.: "ORGREEN OPTICS A/S"),
+ * que não pode ser id de documento no Firestore (é separador de caminho).
+ * Codifica-se SÓ "%" e "/" — os restantes códigos (sem estes caracteres) ficam
+ * inalterados, por isso é retrocompatível com os docs já existentes.
+ */
+export function encodeSupplierId(proveedor: string): string {
+  return proveedor.replace(/%/g, "%25").replace(/\//g, "%2F");
+}
+export function decodeSupplierId(id: string): string {
+  return id.replace(/%2F/g, "/").replace(/%25/g, "%");
+}
+
 /** Escalões válidos e ordenados por `min` ascendente. */
 export function normalizeTiers(tiers: RappelTier[] | undefined | null): RappelTier[] {
   return (tiers ?? [])
