@@ -81,7 +81,7 @@ export function buildWeeklyOpticaPdf(data: WeeklyOpticaReport): jsPDF {
 
   // ── P7: igual à P6, apenas SEM a linha da Elisa (mesmas % — NÃO recalcular) ──
   newPage(); decorHeader(doc);
-  sectionTitle(doc, ["MELHORES VENDEDORES", "DO PERÍODO (SEM ELISA)", range], 50);
+  sectionTitle(doc, ["MELHORES VENDEDORES", "DO PERÍODO", range], 50);
   const rankedSemElisa = ranked.filter((s) => !/elisa/i.test(s.name));
   rankingRows(doc, rankedSemElisa.map((s) => ({ name: s.name, value: `${fmt(s.pct, 2)}%` })), 95);
   pageNumber(doc, pg);
