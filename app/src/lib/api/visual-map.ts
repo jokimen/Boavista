@@ -30,12 +30,13 @@ import type {
   VisualCliente,
   VisualEstadoLinea,
   VisualEventoAgenda,
+  VisualTable,
   VisualVenta,
   VisualVentaLinea,
 } from "@/types/visual";
-import { dateRangeFilter, select, selectAll } from "./visual-client";
+import { dateRangeFilter, select, selectAll, isVisualConfigured } from "./visual-client";
 import { isOdataConfigured, odataSelect } from "./odata-client";
-import { lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, convertedBudgetCodes, type LineSalesDetail } from "./odata-map";
+import { lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, convertedBudgetCodes, saleGradLinesForVentas, type LineSalesDetail } from "./odata-map";
 
 const CENTRO = process.env.VISUAL_CENTRO ?? "";
 
@@ -1957,48 +1958,126 @@ export interface WeeklyClinicaReport {
   };
 }
 
-/** Vendas originadas por optometrista (consulta→venda) + peso por setor. */
-export async function weeklyClinicaReport(from: string, to: string, saudeCodes: Iterable<string> = []): Promise<WeeklyClinicaReport> {
-  const fromD = new Date(from), toD = new Date(to), now = new Date();
-  const salesTo = new Date(Math.max(now.getTime(), toD.getTime() + CONSULT_TO_SALE_DAYS * 86_400_000));
-  const salesToIso = salesTo.toISOString();
-  const [eventos, ventas, articles, classMap] = await Promise.all([
-    fetchEventos(fromD, toD),
-    fetchVentas(fromD.toISOString(), salesToIso),
-    articleIndexForRange(fromD.toISOString(), salesToIso),
-    lineClasses(fromD.toISOString(), salesToIso),
-  ]);
-  const saude = new Set([...saudeCodes].map((c) => norm13(c)).filter(Boolean));
+/**
+ * Equipa INTERNA de optometria da loja. O campo `Optometrista` da revisão é texto
+ * livre e contém sobretudo prescritores EXTERNOS (hospitais/oftalmologistas de quem
+ * o cliente traz receita); os internos identificam-se pela cédula profissional
+ * (estável) — e por variantes do nome como reforço. Só estes entram no relatório;
+ * receitas externas (ou vendas sem revisão que case) são excluídas.
+ */
+const INTERNAL_OPTOMETRISTS: { name: string; cedulas: string[]; nameRe: RegExp }[] = [
+  { name: "Maria Rosa", cedulas: ["47"], nameRe: /maria\s+rosa/i },
+  { name: "Ana Calejo", cedulas: ["768"], nameRe: /ana\s+calejo/i },
+  { name: "Pedro Garcia", cedulas: ["170"], nameRe: /pedro\s+garcia/i },
+];
+/** Nome canónico do optometrista interno, ou null se externo/desconhecido. */
+function internalOptometrist(optometrista: string, cedula: string): string | null {
+  const numCed = (cedula.match(/(\d+)/) ?? [])[1];
+  if (numCed) { for (const o of INTERNAL_OPTOMETRISTS) if (o.cedulas.includes(numCed)) return o.name; }
+  for (const o of INTERNAL_OPTOMETRISTS) if (o.nameRe.test(optometrista)) return o.name;
+  return null;
+}
 
-  // Vendas por cliente, com data, líquido e setores presentes.
-  const byClient = new Map<string, { d: Date; net: number; opto: boolean; cl: boolean }[]>();
-  for (const v of ventas) {
-    const d = parseDate(v.Fecha); if (!d) continue;
-    let opto = false, cl = false;
-    for (const l of v.lineas) {
-      const cat = lineCategory(v, l, classMap, saude, articles);
-      if (cat === "lentes_oftalmicas") opto = true;
-      else if (cat === "lentes_contacto") cl = true;
+/** Nº ou null (aceita "-1,25"/"-1.25"/null/""). */
+function nfNum(x: unknown): number | null { const n = parseFloat(String(x).replace(",", ".")); return Number.isFinite(n) ? n : null; }
+/** Chave de graduação de um olho: `esf|cil|eixo` (eixo irrelevante sem cilindro). */
+function gradKey(esf: unknown, cil: unknown, eje: unknown): string | null {
+  const e = nfNum(esf); if (e === null) return null;
+  const c = nfNum(cil) ?? 0;
+  const j = c !== 0 ? (nfNum(eje) ?? 0) : 0;
+  return `${e.toFixed(2)}|${c.toFixed(2)}|${j}`;
+}
+
+interface ClinicRev { keys: string[]; nm: string | null; t: number }
+/**
+ * Revisões do cliente via REST, com graduação → optometrista. `kind`:
+ * `lentes` = `RevisionesLentes` (óculos, campos `Subjetiva_*`), `lentillas` =
+ * `RevisionesLentillas` (contactologia, campos `OD_/OI_`; a graduação de LC difere
+ * da de óculos — daí serem duas fontes). Mapa cliente → revisões (chaves + interno).
+ */
+async function fetchClinicRevisions(clients: string[], kind: "lentes" | "lentillas"): Promise<Map<string, ClinicRev[]>> {
+  const map = new Map<string, ClinicRev[]>();
+  if (!isVisualConfigured() || !clients.length) return map;
+  const isLC = kind === "lentillas";
+  const table: VisualTable = isLC ? "RevisionesLentillas" : "RevisionesLentes";
+  const fields = isLC
+    ? ["Codigo_cliente", "Fecha", "Optometrista", "Numero_colegiado", "OD_Esfera", "OD_Cilindro", "OD_Eje", "OI_Esfera", "OI_Cilindro", "OI_Eje"]
+    : ["Codigo_cliente", "Fecha", "Optometrista", "Numero_colegiado", "Subjetiva_OD_EsferaLejos", "Subjetiva_OD_Cilindro", "Subjetiva_OD_Eje", "Subjetiva_OI_EsferaLejos", "Subjetiva_OI_Cilindro", "Subjetiva_OI_Eje"];
+  const CHUNK = 40;
+  for (let i = 0; i < clients.length; i += CHUNK) {
+    const ors = clients.slice(i, i + CHUNK).map((c) => `Codigo_cliente eq '${c}'`).join(" or ");
+    const rows = await select<Record<string, unknown>>(table, { fields, filter: ors }).catch(() => [] as Record<string, unknown>[]);
+    for (const r of rows) {
+      const od = isLC ? gradKey(r.OD_Esfera, r.OD_Cilindro, r.OD_Eje) : gradKey(r.Subjetiva_OD_EsferaLejos, r.Subjetiva_OD_Cilindro, r.Subjetiva_OD_Eje);
+      const oi = isLC ? gradKey(r.OI_Esfera, r.OI_Cilindro, r.OI_Eje) : gradKey(r.Subjetiva_OI_EsferaLejos, r.Subjetiva_OI_Cilindro, r.Subjetiva_OI_Eje);
+      const keys = [od, oi].filter((k): k is string => Boolean(k));
+      if (!keys.length) continue;
+      const cli = String(r.Codigo_cliente);
+      const t = parseDate(String(r.Fecha ?? ""))?.getTime() ?? 0;
+      const nm = internalOptometrist(String(r.Optometrista ?? ""), String(r.Numero_colegiado ?? ""));
+      (map.get(cli) ?? map.set(cli, []).get(cli)!).push({ keys, nm, t });
     }
+  }
+  return map;
+}
+
+/**
+ * Vendas originadas por optometrista INTERNO (consultas que geraram venda). A API
+ * NÃO expõe a revisão usada na venda como FK; o único elo é a **graduação**: cada
+ * linha de lente(L)/LC(C) da venda casa-se com a revisão do cliente cuja graduação
+ * é igual (óculos→`RevisionesLentes`, LC→`RevisionesLentillas`). Escolhe-se a revisão
+ * de maior nº de olhos coincidentes e mais recente; se for de optometrista interno,
+ * a venda é creditada por INTEIRO (valor total, incl. diversos/óculos de sol). Vendas
+ * sem match ou de receita externa ficam de fora. + peso por setor.
+ */
+export async function weeklyClinicaReport(from: string, to: string): Promise<WeeklyClinicaReport> {
+  const ventas = await fetchVentas(from, to);
+
+  // Todas as vendas reais do período; a GRADUAÇÃO das linhas (a seguir) é que decide
+  // quais têm lente/LC e ligam a uma revisão. O valor creditado é o TOTAL da venda
+  // (net), mesmo com diversos/óculos de sol. Setores (óculos/LC) saem da graduação.
+  type Sale = { code: number; cliente: string; net: number };
+  const sales: Sale[] = [];
+  const clientSet = new Set<string>();
+  for (const v of ventas) {
+    if (v.Es_presupuesto === "S") continue;
+    const code = Number(v.Codigo); if (!Number.isFinite(code)) continue;
     const net = num(v.Importe_bruto) - num(v.Importe_descuento_lineas) - num(v.Importe_DescuentoGlobal);
-    const key = `${v.Codigo_cliente}-${v.Centro_cliente}`;
-    (byClient.get(key) ?? byClient.set(key, []).get(key)!).push({ d, net, opto, cl });
+    sales.push({ code, cliente: String(v.Codigo_cliente), net });
+    clientSet.add(String(v.Codigo_cliente));
   }
 
-  const opt = new Map<string, { count: number; fat: number; opto: number; cl: number }>();
-  for (const e of eventos) {
-    const ini = parseDate(e.Inicio); if (!ini) continue;
-    const name = (e.Usuario || "").trim(); if (!name) continue;
-    const key = `${e.CodigoCliente}-${e.CentroCliente}`;
-    const limit = ini.getTime() + CONSULT_TO_SALE_DAYS * 86_400_000;
-    const slack = ini.getTime() - 86_400_000;
-    const match = (byClient.get(key) ?? []).find((s) => s.d.getTime() >= slack && s.d.getTime() <= limit);
-    if (!match) continue;
-    const cur = opt.get(name) ?? { count: 0, fat: 0, opto: 0, cl: 0 };
-    cur.count++; cur.fat += match.net;
-    if (match.opto) cur.opto++;
-    if (match.cl) cur.cl++;
-    opt.set(name, cur);
+  // Graduação das linhas L/C por venda (OData) + revisões óculos/LC dos clientes (REST).
+  const clients = [...clientSet];
+  const [gradLines, revL, revC] = await Promise.all([
+    saleGradLinesForVentas(sales.map((s) => s.code)),
+    fetchClinicRevisions(clients, "lentes"),
+    fetchClinicRevisions(clients, "lentillas"),
+  ]);
+  const saleKeys = new Map<number, { L: Set<string>; C: Set<string> }>();
+  for (const g of gradLines) {
+    const k = gradKey(g.esfera, g.cilindro, g.eje); if (!k) continue;
+    const e = saleKeys.get(g.codigoVenta) ?? { L: new Set<string>(), C: new Set<string>() };
+    (g.clase === "C" ? e.C : e.L).add(k);
+    saleKeys.set(g.codigoVenta, e);
+  }
+
+  const opt = new Map<string, { count: number; fat: number; fatOpto: number; fatCl: number }>();
+  for (const s of sales) {
+    const sk = saleKeys.get(s.code); if (!sk) continue;
+    // Candidatos: revisões cuja graduação (por olho) coincide com as linhas da venda.
+    const cand: { score: number; t: number; nm: string | null }[] = [];
+    for (const r of revL.get(s.cliente) ?? []) { let sc = 0; for (const k of sk.L) if (r.keys.includes(k)) sc++; if (sc) cand.push({ score: sc, t: r.t, nm: r.nm }); }
+    for (const r of revC.get(s.cliente) ?? []) { let sc = 0; for (const k of sk.C) if (r.keys.includes(k)) sc++; if (sc) cand.push({ score: sc, t: r.t, nm: r.nm }); }
+    if (!cand.length) continue;
+    cand.sort((a, b) => b.score - a.score || b.t - a.t); // + olhos coincidentes, depois mais recente
+    const best = cand[0];
+    if (!best.nm) continue; // a revisão que melhor casa é de receita externa → exclui
+    const cur = opt.get(best.nm) ?? { count: 0, fat: 0, fatOpto: 0, fatCl: 0 };
+    cur.count++; cur.fat += s.net;
+    if (sk.L.size) cur.fatOpto += s.net; // € de vendas com óculos graduados
+    if (sk.C.size) cur.fatCl += s.net;   // € de vendas com lentes de contacto
+    opt.set(best.nm, cur);
   }
 
   const list = [...opt.entries()].map(([name, x]) => ({ name, ...x }));
@@ -2006,15 +2085,17 @@ export async function weeklyClinicaReport(from: string, to: string, saudeCodes: 
     .map((x) => ({ name: x.name, originated: x.count, faturacao: round(x.fat) }));
   const topByValue = [...list].sort((a, b) => b.fat - a.fat).slice(0, 3)
     .map((x) => ({ name: x.name, originated: x.count, faturacao: round(x.fat) }));
+  // Setores = % de FATURAÇÃO (€) por optometrista (validado: total = Σ€ do optometrista
+  // / Σ€ da equipa), 2 casas decimais.
   const pctOf = (sel: (x: typeof list[number]) => number) => {
     const tot = list.reduce((s, x) => s + sel(x), 0);
     return list.filter((x) => sel(x) > 0)
-      .map((x) => ({ name: x.name, pct: tot ? Math.round((sel(x) / tot) * 100) : 0 }))
+      .map((x) => ({ name: x.name, pct: tot ? Math.round((sel(x) / tot) * 10000) / 100 : 0 }))
       .sort((a, b) => b.pct - a.pct);
   };
   return {
     from, to, topByCount, topByValue,
-    sectors: { optometria: pctOf((x) => x.opto), contactologia: pctOf((x) => x.cl), total: pctOf((x) => x.count) },
+    sectors: { optometria: pctOf((x) => x.fatOpto), contactologia: pctOf((x) => x.fatCl), total: pctOf((x) => x.fat) },
   };
 }
 

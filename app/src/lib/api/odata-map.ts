@@ -453,6 +453,37 @@ export async function lensTreatmentLines(
 }
 
 /**
+ * Graduação das linhas de lente(L)/LC(C) por venda — para ligar a venda à revisão
+ * (óculos/contactologia) do cliente pela graduação (a API NÃO expõe a revisão usada
+ * como FK; a graduação é o único elo). Devolve ESFERA/CILINDRO/EIXO por linha.
+ */
+export interface SaleGradLine { codigoVenta: number; clase: "L" | "C"; esfera: number | null; cilindro: number | null; eje: number | null }
+export async function saleGradLinesForVentas(ventaCodes: number[]): Promise<SaleGradLine[]> {
+  if (!isOdataConfigured() || !ventaCodes.length) return [];
+  const numOrNull = (x: unknown): number | null => { const n = parseFloat(String(x).replace(",", ".")); return Number.isFinite(n) ? n : null; };
+  const out: SaleGradLine[] = [];
+  const CHUNK = 50;
+  for (let i = 0; i < ventaCodes.length; i += CHUNK) {
+    const ors = ventaCodes.slice(i, i + CHUNK).map((c) => `CODIGO_VENTA eq ${c}`).join(" or ");
+    const rows = await odataSelect<{ CODIGO_VENTA: number; CLASE_PRODUCTO: string; ESFERA: string | number | null; CILINDRO: string | number | null; EJE: string | number | null }>(
+      "VX_LINEAS_VENTA",
+      {
+        filter: andAll(centroEq("CENTRO_VENTA"), `(${ors})`, "(CLASE_PRODUCTO eq 'L' or CLASE_PRODUCTO eq 'C')"),
+        select: ["CODIGO_VENTA", "CLASE_PRODUCTO", "ESFERA", "CILINDRO", "EJE"],
+      },
+    ).catch(() => []);
+    for (const r of rows) {
+      const clase = (r.CLASE_PRODUCTO || "").trim();
+      if (clase !== "L" && clase !== "C") continue;
+      // ⚠️ OData serializa Int64 (CODIGO_VENTA) como STRING no JSON → coagir a número
+      // para casar com o code numérico da venda (Number(v.Codigo)).
+      out.push({ codigoVenta: Number(r.CODIGO_VENTA), clase, esfera: numOrNull(r.ESFERA), cilindro: numOrNull(r.CILINDRO), eje: numOrNull(r.EJE) });
+    }
+  }
+  return out;
+}
+
+/**
  * Detalhe rico por linha de venda (para análise por fornecedor): além de PROVEEDOR
  * e CLASE_PRODUCTO, traz a taxonomia AGRUPACION1/2/3 (que codifica material e
  * género nas armações, e tipo de lente nas oftálmicas) e a prescrição
