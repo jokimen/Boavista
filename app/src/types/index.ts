@@ -14,7 +14,7 @@ export type ModuleKey =
   | "clientes"
   | "equipa"
   | "descontos"
-  | "consultas"
+  | "entidades"
   | "operacao"
   | "fornecedores"
   | "alertas"

@@ -6,7 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Sun, Calendar, ShoppingBag, GitBranch,
-  Package, Users, UserCheck, Scissors, CalendarCheck,
+  Package, Users, UserCheck, Scissors, ShieldCheck,
   Truck, Bell, ChevronLeft, ChevronRight,
   LogOut, Shield, FileText, Wallet, Factory,
 } from "lucide-react";
@@ -25,7 +25,7 @@ const navItems: ({ divider: true } | { href: string; icon: typeof LayoutDashboar
   { divider: true },
   { href: "/equipa", icon: UserCheck, label: "Equipa", module: "equipa" },
   { href: "/descontos", icon: Scissors, label: "Descontos", module: "descontos" },
-  { href: "/consultas", icon: CalendarCheck, label: "Consultas", module: "consultas" },
+  { href: "/entidades", icon: ShieldCheck, label: "Entidades", module: "entidades" },
   { divider: true },
   { href: "/clientes", icon: Users, label: "Clientes", module: "clientes" },
   { href: "/stock", icon: Package, label: "Stock", module: "stock" },

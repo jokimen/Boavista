@@ -12,7 +12,7 @@ const MODULES: { key: ModuleKey; label: string }[] = [
   { key: "mes", label: "Mês" },
   { key: "vendas", label: "Vendas" },
   { key: "pipeline", label: "Pipeline" },
-  { key: "consultas", label: "Consultas" },
+  { key: "entidades", label: "Entidades" },
   { key: "stock", label: "Stock" },
   { key: "clientes", label: "Clientes" },
   { key: "equipa", label: "Equipa" },

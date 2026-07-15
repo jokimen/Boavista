@@ -6,7 +6,7 @@ import type { ModuleKey, UserRole } from "@/types";
 
 const VALID_MODULES: ModuleKey[] = [
   "dashboard", "hoje", "mes", "vendas", "faturacao", "caixa", "pipeline", "stock",
-  "clientes", "equipa", "descontos", "consultas", "operacao", "fornecedores", "alertas",
+  "clientes", "equipa", "descontos", "entidades", "operacao", "fornecedores", "alertas",
 ];
 
 // Roles que o superadmin pode atribuir por esta UI (não permite criar superadmin).

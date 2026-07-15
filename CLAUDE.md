@@ -40,7 +40,7 @@ qrcode · Resend (email) · WAHA (WhatsApp) · xlsx + jspdf (export) · zod.
   `src/lib/auth/session.ts` (`getSession`); helpers de API em `src/lib/auth/api-session.ts`
   (`requireSuperadmin`/`getApiSession`/`getSessionIdentity`). Guard por módulo em `guard.ts`. Proxy
   (porta única) via `src/proxy.ts`. **16 módulos** (`ModuleKey`): dashboard,
-  hoje, mes, vendas, faturacao, caixa, pipeline, stock, clientes, equipa, descontos, consultas,
+  hoje, mes, vendas, faturacao, caixa, pipeline, stock, clientes, equipa, descontos, entidades,
   operacao, fornecedores, alertas, admin.
 - **Alertas**: `src/lib/alerts/engine.ts` calcula **13 alertas** (operacionais + comerciais:
   recall clínico, cross-sell, attach de tratamentos) a partir do adapter. Janela de **2 meses**
@@ -160,12 +160,43 @@ texto com `pdf-parse` v2: `new PDFParse({data}).getText()`).
   armações vs sol (€/un.), monofocais/progressivos/bifocais, orçamentos feitos vs convertidos e
   **vendas por entregar** (`Estado` da linha T/I/H/C/J). Reaproveita `supplierLines` (estendido com
   marca/estado/data/referência).
+- **Entidades** (menu `entidades`, substituiu o antigo "Consultas" em 2026-07-15): análise das
+  **vendas com seguro**. Lista por entidade (nº de vendas, valor total, desconto médio,
+  comparticipação) e detalhe clicável `/entidades/[codigo]` (ticket médio, produtos mais vendidos,
+  margem + cobertura, vendedores). `insurerEntities`/`insurerEntityDetail` em visual-map.
+  Particularidades **validadas contra os dados** (2025-2026) — contrariam o que estava aqui escrito:
+  - **A seguradora só existe na FATURA**; a `Ventas` NÃO tem nada de seguro (18 campos, nenhum).
+    A fatura felizmente traz `Usuario` (vendedor) e as `lineas`.
+  - ⚠️ **O modelo "FR/FT/NC" documentado antes NÃO se confirma** na BD própria: a **FR** é o
+    documento dominante (1131/1468 em Junho/2026) e **tem** desconto (92.312€) — não é "desc=0".
+    Há ainda FS/NS/ND. **Nº de vendas** = faturas positivas − notas de crédito (`Importe_bruto` < 0),
+    a mesma lógica já validada ao cêntimo para a Faturação (somar TODOS os documentos).
+  - ⚠️ **`Importe_asegurado`** (linha) seria a comparticipação exata mas o Visual só o preenche em
+    **~1%** dos casos (medido em Jun/25, Jan/26, Jun/26, Jul/26) → **inútil**. Logo comparticipação =
+    `Σ Importe_descuento`, e o "desconto médio" sai do MESMO campo (média vs total).
+  - ⚠️ **Margem só onde há custo**: as linhas da fatura têm `Codigo_articulo` (stock) mas **não**
+    `Codigo_producto` → as lentes (encomenda) não têm custo. Ligar fatura→venda por cliente+valor
+    acerta só **54%** e 4 meses de `Ventas` rebentam o timeout de 25s. Decisão do dono: mostrar a
+    margem só sobre as linhas com custo, com a **cobertura à vista** (~30%).
+  - O **NOME da seguradora não existe na API** (só o código) e a `aseguradora_config` está VAZIA →
+    mostram-se TODAS com o rótulo `Seguro «código»` até serem nomeadas no Admin (senão o menu ficava
+    vazio). Nas linhas, tira-se o prefixo `O.D.:`/`O.E.:` da descrição, senão a mesma lente conta 2x.
 - **Menus novos (OData)**: **Faturação** (VX_FACTURAS_CLIENTES), **Gestão de Caixa**
   (VX_MOVIMIENTOS_CAJA, sem 0€, KPIs por forma de pagamento/colaborador/dia), **Fornecedores/Rappel**
   (VX_FACTURAS_PROVEEDORES; Admin define grupo/objetivo/rappel — migração `005` `supplier_config`).
   **Rappel escalonado** (migração `011`, coluna `rappel_tiers`): cada fornecedor tem patamares
   `{min €, %}`; a % do patamar mais alto atingido pelas compras aplica-se ao TOTAL. Helpers
   `rappelForTotal`/`rappelPctForTotal` em `lib/suppliers/constants.ts` (client-safe).
+  ⚠️ **O rappel creditado NÃO é uma compra** (corrigido 2026-07-15): o Visual lança-o como nota de
+  crédito do fornecedor (linha `CANTIDAD=-1`, preço positivo), e as compras somavam-no em NEGATIVO —
+  circular, porque ganhar rappel reduzia a base do próprio rappel (2026 YTD: −289.762€, dos quais
+  ZEISS −238.318€). `supplierPurchases` exclui as linhas cuja `DESCRIPCION` bate `RAPPEL_LINE_RE`
+  (dizem sempre "RAPPEL": "RAPPEL ZEISS - MAIO 2026", "RAPPEL VTS 24/25", "RAPPELMKT 24/25"; apanha
+  também as raras positivas de "CORREÇÃO RAPPEL") e devolve-as em `rappelCreditado` — o menu mostra
+  **"Rappel Creditado"** (real) a par do **"Rappel Estimado"** (patamares). As **devoluções** de
+  produto (também `CANTIDAD<0`) CONTINUAM a abater: rappel é sobre compras líquidas (decisão do dono)
+  — por isso um fornecedor com só devoluções no período dá negativo, e é correto. Aplicam-se também os
+  `DESCUENTO_1/2` do **cabeçalho** da fatura (antes só os das linhas).
   **Análise de VENDAS por fornecedor** (página dedicada `/fornecedores/[codigo]`, clicável da lista
   "Principais Fornecedores por grupo" e da tabela de compras): KPIs (vendas/un./ticket/margem/cobertura),
   best-sellers, ranking de vendedores (valor/quantidade/produto-estrela), demografia do comprador
@@ -197,12 +228,9 @@ texto com `pdf-parse` v2: `new PDFParse({data}).getText()`).
   (`rangeLabel`). Dados em `visual-map`: `weeklyOpticaReport`, `weeklyClinicaReport` (optometristas
   via `VX_AGENDA` Usuario + conversão consulta→venda), `monthlyReport`. Rotas `/api/reports/*`
   (maxDuration 300). **Seguros** vêm da REST `FacturasClientes.Codigo_aseguradora` + nomes em
-  **Admin → Seguradoras** (migração 010). **Comparticipação € por seguradora** (relatório mensal,
-  página "COMPARTICIPAÇÃO DE SEGUROS"): cada venda com seguro gera 3 faturas em `FacturasClientes`
-  (prefixo `Referencia`) — **FR** (recibo à seguradora, desc=0), **FT** (fatura cliente, o
-  `Importe_descuento` = € que o cliente NÃO pagou = comparticipação), **NC** (nota de crédito que
-  anula a FR, desc=0). Logo `Σ Importe_descuento` por seguradora mapeada = € comparticipado
-  (FR/NC têm desc=0, não interferem) — `monthlyInsurers` em visual-map. **Compras por tipo**
+  **Admin → Seguradoras** (migração 010). **Comparticipação € por seguradora** = `Σ Importe_descuento`
+  das faturas com seguradora (o € que o cliente NÃO pagou) — `monthlyInsurers` em visual-map; ver a
+  secção "Entidades" abaixo para as particularidades validadas. **Compras por tipo**
   (página "COMPRAS MENSAIS"): `supplierPurchases` (OData) agregadas pelo **grupo** do fornecedor
   configurado no Admin (oftálmicas / LC+saúde / armações+sol — `supplier_config`); fornecedores sem
   grupo caem em "Sem grupo". **Páginas multi-série por vendedor** (`groupedHBarChart` no

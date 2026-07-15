@@ -330,6 +330,32 @@ export const CHART_INFO: Record<string, InfoEntry> = {
       </div>
     ),
   },
+  "entidades-vendas": {
+    title: "Vendas por Entidade",
+    body: (
+      <div className="space-y-3 text-sm text-text-strong">
+        <p>Vendas com <strong>seguro</strong>, por entidade, no período filtrado. A seguradora só existe nas <strong>faturas</strong> (a venda não a regista), por isso tudo aqui sai delas.</p>
+        <ul className="space-y-1.5">
+          <Li><strong>Nº de vendas</strong> = faturas emitidas <strong>menos</strong> as notas de crédito (uma venda pode gerar vários documentos).</Li>
+          <Li><strong>Comparticipação</strong> = o € que o cliente <strong>não pagou</strong> por ter seguro.</Li>
+          <Li><strong>Desconto médio</strong> = essa comparticipação a dividir pelo nº de vendas — vem do mesmo campo, é a média em vez do total.</Li>
+        </ul>
+        <p className="text-xs text-text-muted">Entidades sem nome aparecem como &quot;Seguro «código»&quot;: o Visual não guarda o nome da seguradora. Dá-lhes nome em Admin → Seguradoras.</p>
+      </div>
+    ),
+  },
+  "entidades-margem": {
+    title: "Margem das vendas com seguro",
+    body: (
+      <div className="space-y-3 text-sm text-text-strong">
+        <p>Margem calculada <strong>só sobre as linhas com custo conhecido</strong> — os artigos de <strong>stock</strong> (armações, óculos de sol, líquidos).</p>
+        <ul className="space-y-1.5">
+          <Li>As <strong>lentes</strong> são produto de encomenda: a fatura não traz o código do produto, por isso não têm custo e ficam de fora.</Li>
+          <Li>A <strong>cobertura</strong> diz sobre que % do valor a margem foi calculada — quanto mais baixa, menos representativa.</Li>
+        </ul>
+      </div>
+    ),
+  },
   "fat-seguros-desc": {
     title: "Descontos por Seguradora",
     body: (
