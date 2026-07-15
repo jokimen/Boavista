@@ -81,8 +81,32 @@ Config em `.env.local`: `VISUAL_API_URL=https://shop.tematicasoftware.com/api`,
   Admin), `diversos` (resto). A classe da linha vem do **OData** (`VX_LINEAS_VENTA.CLASE_PRODUCTO`,
   via `lineClasses`) — a REST NÃO traz a classe da linha; fallback ao maestro. `categoryFromClase`
   + `lineCategory` em visual-map. (Os OBJETIVOS mantêm "Óculos Graduados" = L+G, ver Funcionalidades.)
-- Linha→artigo: `Codigo_articulo` (13 díg) ou `Codigo_producto` (forma `@centro` = Codigo sem
-  zeros à esquerda). `norm13()` normaliza; `articleForLine()` resolve.
+- Linha→artigo: `Codigo_articulo` (13 díg) ou `Codigo_producto` (forma `@centro`). `norm13()`
+  normaliza; `articleForLine()` resolve.
+  ⚠️ **`Codigo_producto` NÃO é o mesmo espaço de códigos que o `Codigo` do artigo** (validado
+  2026-07-15): o produto `0000000006@1` é a lente **BIOFINITY TORICA XR**, mas o artigo
+  `0000000000006` é o líquido **SOLO CARE AQUA**. Normalizar o produto a 13 díg e procurá-lo no
+  maestro dá **falsos positivos**. `VX_PRODUCTOS` também não resolve por código: a chave
+  `0000000009@1` tem **9 produtos** de fornecedores diferentes (PVO de 8,30€ a 86€) — o
+  `CODIGO_PRODUCTO` lá é composto (`FORNECEDOR|codigo|@centro|...`).
+  ✅ **Corrigido 2026-07-15**: `articleForLine()` e `collectArticleCodes()` só usam
+  `Codigo_articulo`; `lineCategory` idem. Só trazem `Codigo_producto` (→ sem artigo, de propósito):
+  **lentes de lab (285/285), LC de encomenda (125/172) e serviços**; o custo dessas vem da cadeia
+  entrada→fatura (`entryCosts`), que é a fonte com autoridade.
+  ⚠️ **A margem estava INFLACIONADA**: as linhas sem artigo apanhavam um artigo qualquer e o seu
+  `Precio_compra` **ganhava ao custo real** em `lineCostNet` (ex.: lente de 455€ custeada como
+  "ARMAÇÃO MASSA STING" a 43,64€, quando a entrada real diz 258€). Lentes oftálmicas: **66,9% → 50,4%**
+  num mês liquidado (Março/2026). Meses recentes dão mais baixo (~29%) porque as faturas do lab ainda
+  não chegaram — é a cobertura, não a margem. Armações/sol nunca foram afetadas (têm artigo próprio).
+- **Saúde ocular / líquidos = `AGRUPACION_2 = 'MANUTENCAO OCULAR'`** (validado 2026-07-15). A lista
+  de códigos do Admin estava VAZIA → foi semeada com os **116 artigos** dessa agrupação (62 líquidos,
+  38 lágrimas, 8 higiene palpebral, 5 suplementos, 3 limpeza enzimática; inclui 10 descontinuados,
+  de propósito, p/ as vendas antigas continuarem a categorizar). Script idempotente com dry-run:
+  `npx tsx --env-file=.env.local scripts/seed-saude-ocular.mts [--commit]`. ⚠️ **classe `P` ≠ saúde
+  ocular** — é o balde de tudo o que não é L/G/S/C; os vizinhos NÃO entram: `PRODUTOS|MANUTENCAO LC`
+  são ventosas, `ACESSORIOS|LIMPEZA`/`DIVERSOS|LIMPEZA` são anti-embaciamento/panos de óculos,
+  `PRÓTESES OCULAR` é outro serviço. Nota: em `VX_ARTICULOS` o campo é `AGRUPACION_2` (underscore),
+  em `VX_LINEAS_VENTA` é `AGRUPACION2` (sem).
 - **Venda líquida = `Importe_bruto − Importe_descuento_lineas − Importe_DescuentoGlobal`**
   (campos da venda — KPIs de vendas/ticket/conversão não precisam de artigos).
 - **PVP = `Precio_venta × (1 + IVA/100)`** (Precio_venta é SEM IVA). Produto premium =
@@ -122,7 +146,8 @@ texto com `pdf-parse` v2: `new PDFParse({data}).getText()`).
 
 ## Funcionalidades (estado atual)
 - **Objetivos mensais** (Admin → Objetivos, migração `004`): tabela `monthly_targets`
-  (ano/mês/categoria/€) + `saude_ocular_products` (códigos). Categorias-objetivo: global,
+  (ano/mês/categoria/€) + `saude_ocular_products` (códigos — ✅ **semeados 2026-07-15**: 116 artigos,
+  ver Saúde Ocular abaixo). Categorias-objetivo: global,
   oculos_graduados (=L+armações), oculos_sol, lentes_contacto, saude_ocular. `lib/targets/`
   (`constants.ts` client-safe + `store.ts` server). Painel no Dashboard; objetivo do Hoje =
   global ÷ dias úteis. **Objetivos POR VENDEDOR** (migração `014` `employee_targets`): em
@@ -308,11 +333,12 @@ estar também na **Vercel** (env de produção). Em **produção** (Vercel + `ww
   `/api/register` por convite, Admin SDK). Novos perfis nascem `is_active=false` + proxy bloqueia inativos.
 - ✅ **Credenciais Visual** completas e verificadas (login OK, token + dados reais). Dado como
   resolvido — a rotação da password era só higiene opcional, fica ao critério do dono.
-- ⏳ **Regras Firestore por publicar**: `firebase deploy --only firestore:rules` (negam acesso cliente).
+- ✅ **Regras Firestore publicadas** (2026-07-15): `firebase deploy --only firestore:rules` feito e
+  verificado com o SDK cliente — leitura, listagem, escrita e o cofre `totp_secrets` dão todos
+  `permission-denied`. O Admin SDK contorna-as (app OK). Republicar sempre que `firestore.rules` mudar.
 - **Operacional (na UI, pelo dono)**: o pré-mapeamento de **44 fornecedores** por marca (14 oftálmicas /
   12 LC+saúde / 18 armações+sol) estava em `app/scripts/supplier_groups_premap.sql` (Supabase, histórico).
-  ⚠️ Com a migração para Firebase, confirmar se a coleção `supplier_config` no Firestore foi semeada;
-  se não, reconfigurar em Admin → Fornecedores.
+  ✅ `supplier_config` **semeado no Firestore** (35 grupos, 2026-07-13) — o premap SQL é histórico morto.
   Falta: confirmar 3 marcados ⚠️ (Zeiss3/A.Winter, Indo, Seiko) e atribuir grupo aos restantes
   distribuidores PT genéricos (Admin → Fornecedores). 3 grupos: aros+sol JUNTOS (`armacoes_sol`).
   Definir também objetivos mensais (Admin → Objetivos — alimentam Dashboard, Hoje e alertas de ritmo).

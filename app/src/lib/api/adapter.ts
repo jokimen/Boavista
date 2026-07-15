@@ -85,13 +85,13 @@ export async function fetchSalesTrend(from: string, to: string) {
   return cSalesTrend(from, to);
 }
 
-export async function fetchDiscounts(from: string, to: string) {
+export async function fetchDiscounts(from: string, to: string, saudeCodes: Iterable<string> = []) {
   if (USE_MOCK) {
     const { mockDiscounts } = await import("@/lib/mock-data/sales");
     return mockDiscounts(from, to);
   }
   const { discounts } = await import("./visual-map");
-  return discounts(from, to);
+  return discounts(from, to, [...saudeCodes]);
 }
 
 /** Clientes de Lentes de Contacto (diárias/mensais) para reposição. */

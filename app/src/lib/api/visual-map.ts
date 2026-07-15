@@ -174,15 +174,15 @@ const ARTICLE_FIELDS = [
   "Descripcion", "Producto", "Precio_compra", "Precio_venta", "IVA",
 ];
 
-/** Códigos (normalizados a 13 díg) referenciados nas linhas de um conjunto de vendas. */
+/** Códigos (normalizados a 13 díg) referenciados nas linhas de um conjunto de vendas.
+ *  Só `Codigo_articulo`: o `Codigo_producto` é outro espaço de códigos e ia buscar ao
+ *  maestro artigos que não são os da linha (ver `articleForLine`). */
 function collectArticleCodes(ventas: VisualVenta[]): Set<string> {
   const s = new Set<string>();
   for (const v of ventas) {
     for (const l of v.lineas ?? []) {
       const a = norm13(l.Codigo_articulo);
       if (a) s.add(a);
-      const p = norm13(l.Codigo_producto);
-      if (p) s.add(p);
     }
   }
   return s;
@@ -231,23 +231,28 @@ async function articleIndexForRange(from: string, to: string): Promise<Map<strin
 }
 
 /**
- * Resolve o artigo de uma linha: tenta `Codigo_articulo` (cru e normalizado) e
- * depois `Codigo_producto` normalizado a 13 dígitos. Devolve undefined para as
- * lentes de laboratório (não estão no maestro).
+ * Resolve o artigo de uma linha, SÓ por `Codigo_articulo` (cru ou normalizado).
+ *
+ * ⚠️ NÃO procurar pelo `Codigo_producto`: é OUTRO espaço de códigos e a forma
+ * normalizada colide com códigos de artigo reais. Medido (semana 06-11/07/2026):
+ * o produto `0000000006@1` é a lente BIOFINITY TORICA XR mas o artigo
+ * `0000000000006` é o líquido SOLO CARE AQUA — **81 das 172 linhas de LC**
+ * apanhavam assim um artigo errado, e o seu `Precio_compra` falso ganhava ao custo
+ * REAL da entrada/fatura em `lineCostNet` (margem, marca e PVP das LC errados).
+ * O `VX_PRODUCTOS` também não resolve por código: a chave `0000000009@1` tem 9
+ * produtos de fornecedores diferentes, com PVO de 8,30€ a 86€.
+ *
+ * Devolve undefined para as linhas que só trazem `Codigo_producto` (lentes de
+ * laboratório, LC de encomenda, serviços) — o custo dessas vem da cadeia
+ * entrada→fatura (`entryCosts`), que é a fonte com autoridade. Medido: assim
+ * 165/172 linhas de LC ficam com custo CORRETO (antes: 81 falsos).
  */
 function articleForLine(
   l: VisualVentaLinea,
   articles: Map<string, ArticleInfo>,
 ): ArticleInfo | undefined {
-  if (l.Codigo_articulo) {
-    const a = articles.get(String(l.Codigo_articulo)) ?? articles.get(norm13(l.Codigo_articulo));
-    if (a) return a;
-  }
-  if (l.Codigo_producto) {
-    const n = norm13(l.Codigo_producto);
-    if (n) return articles.get(n);
-  }
-  return undefined;
+  if (!l.Codigo_articulo) return undefined;
+  return articles.get(String(l.Codigo_articulo)) ?? articles.get(norm13(l.Codigo_articulo));
 }
 
 // ─── Metadados por linha via OData (VX_LINEAS_VENTA) ──────────────────────────
@@ -1672,10 +1677,11 @@ export async function appointments(from: string, to: string): Promise<Appointmen
 
 // ─── Descontos ──────────────────────────────────────────────────────────────
 
-export async function discounts(from: string, to: string) {
-  const [ventas, articles, entryCosts] = await Promise.all([
-    fetchVentas(from, to), articleIndexForRange(from, to), lineEntryCosts(from, to),
+export async function discounts(from: string, to: string, saudeCodes: Iterable<string> = []) {
+  const [ventas, articles, entryCosts, classMap] = await Promise.all([
+    fetchVentas(from, to), articleIndexForRange(from, to), lineEntryCosts(from, to), lineClasses(from, to),
   ]);
+  const saude = new Set([...saudeCodes].map((c) => norm13(c)).filter(Boolean));
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
@@ -1706,11 +1712,12 @@ export async function discounts(from: string, to: string) {
     e.gross += gross;
     byEmp.set(u, e);
 
-    // Desconto por categoria (linha a linha).
+    // Desconto por categoria (linha a linha). A categoria vem da CLASSE da linha
+    // (OData), como no resto da app — não do artigo: as lentes/LC só trazem
+    // `Codigo_producto` e não resolvem para artigo nenhum (ver `articleForLine`).
     const ratio = lineDiscountRatio(v);
     for (const l of v.lineas) {
-      const art = articleForLine(l, articles);
-      const cat = art?.category ?? "diversos";
+      const cat = lineCategory(v, l, classMap, saude, articles);
       const lgross = num(l.Precio_unitario) * num(l.Cantidad);
       const ldisc = num(l.Importe_descuento) + lgross * ratio;
       const c = byCat.get(cat) ?? { disc: 0, gross: 0 };

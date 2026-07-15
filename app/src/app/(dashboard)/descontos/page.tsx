@@ -10,6 +10,7 @@ import { canExport } from "@/lib/auth/permissions";
 import { fetchDiscounts, fetchEmployees } from "@/lib/api/adapter";
 import { insurerDiscounts } from "@/lib/api/visual-map";
 import { getAseguradoraConfig } from "@/lib/aseguradoras/store";
+import { getSaudeOcularCodes } from "@/lib/targets/store";
 import { GlobalFilters } from "@/components/layout/GlobalFilters";
 import { getGlobalFilters } from "@/lib/filters/cookie";
 import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
@@ -64,7 +65,7 @@ export default async function DescontosPage() {
   const session = await requireModule("descontos");
   const filters = await getGlobalFilters();
   const { from, to } = resolveDateRange(filters);
-  const data = await fetchDiscounts(from, to);
+  const data = await fetchDiscounts(from, to, await getSaudeOcularCodes().catch(() => [] as string[]));
 
   return (
     <div className="flex flex-col h-full overflow-auto">

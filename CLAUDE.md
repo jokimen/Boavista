@@ -86,11 +86,18 @@ Config em `.env.local`: `VISUAL_API_URL=https://shop.tematicasoftware.com/api`,
   ⚠️ **`Codigo_producto` NÃO é o mesmo espaço de códigos que o `Codigo` do artigo** (validado
   2026-07-15): o produto `0000000006@1` é a lente **BIOFINITY TORICA XR**, mas o artigo
   `0000000000006` é o líquido **SOLO CARE AQUA**. Normalizar o produto a 13 díg e procurá-lo no
-  maestro dá **falsos positivos**. Por isso `lineCategory` só compara a lista de Saúde Ocular com
-  `Codigo_articulo` (as linhas de saúde ocular trazem-no sempre; 32/32 medidas).
-  ⚠️ `articleForLine()` **mantém** esse fallback `norm13(Codigo_producto)` → resolve a LC para o
-  artigo errado (125 das 172 linhas de LC de uma semana só têm `Codigo_producto`) e daí saem
-  marca/`Precio_compra`/PVP errados. Afeta margem/marcas das LC — **por corrigir**.
+  maestro dá **falsos positivos**. `VX_PRODUCTOS` também não resolve por código: a chave
+  `0000000009@1` tem **9 produtos** de fornecedores diferentes (PVO de 8,30€ a 86€) — o
+  `CODIGO_PRODUCTO` lá é composto (`FORNECEDOR|codigo|@centro|...`).
+  ✅ **Corrigido 2026-07-15**: `articleForLine()` e `collectArticleCodes()` só usam
+  `Codigo_articulo`; `lineCategory` idem. Só trazem `Codigo_producto` (→ sem artigo, de propósito):
+  **lentes de lab (285/285), LC de encomenda (125/172) e serviços**; o custo dessas vem da cadeia
+  entrada→fatura (`entryCosts`), que é a fonte com autoridade.
+  ⚠️ **A margem estava INFLACIONADA**: as linhas sem artigo apanhavam um artigo qualquer e o seu
+  `Precio_compra` **ganhava ao custo real** em `lineCostNet` (ex.: lente de 455€ custeada como
+  "ARMAÇÃO MASSA STING" a 43,64€, quando a entrada real diz 258€). Lentes oftálmicas: **66,9% → 50,4%**
+  num mês liquidado (Março/2026). Meses recentes dão mais baixo (~29%) porque as faturas do lab ainda
+  não chegaram — é a cobertura, não a margem. Armações/sol nunca foram afetadas (têm artigo próprio).
 - **Saúde ocular / líquidos = `AGRUPACION_2 = 'MANUTENCAO OCULAR'`** (validado 2026-07-15). A lista
   de códigos do Admin estava VAZIA → foi semeada com os **116 artigos** dessa agrupação (62 líquidos,
   38 lágrimas, 8 higiene palpebral, 5 suplementos, 3 limpeza enzimática; inclui 10 descontinuados,
