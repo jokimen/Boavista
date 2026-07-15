@@ -457,7 +457,24 @@ export async function lensTreatmentLines(
  * (óculos/contactologia) do cliente pela graduação (a API NÃO expõe a revisão usada
  * como FK; a graduação é o único elo). Devolve ESFERA/CILINDRO/EIXO por linha.
  */
-export interface SaleGradLine { codigoVenta: number; clase: "L" | "C"; esfera: number | null; cilindro: number | null; eje: number | null }
+/** AGRUPACION2 que marca os produtos de manutenção/saúde ocular (líquidos, lágrimas,
+ *  higiene palpebral). Validado contra os dados: é o único grupo que os junta e deixa
+ *  de fora acessórios/adicionais/"vários genérico" — todos eles também classe 'P'. */
+export const AGR2_MANUTENCAO_OCULAR = "MANUTENCAO OCULAR";
+
+export interface SaleGradLine {
+  codigoVenta: number; codigoLinea: number;
+  /** 'L'/'C' trazem graduação; 'P' entra só quando é manutenção/saúde ocular. */
+  clase: string;
+  /** AGRUPACION2 — ver AGR2_MANUTENCAO_OCULAR. */
+  agr2: string;
+  esfera: number | null; cilindro: number | null; eje: number | null;
+}
+/**
+ * Linhas que o relatório da clínica precisa, numa só varredura: as de graduação
+ * (L/C, que ligam a venda à revisão do optometrista) e as de manutenção/saúde
+ * ocular (que contam para a contactologia, mas não têm graduação).
+ */
 export async function saleGradLinesForVentas(ventaCodes: number[]): Promise<SaleGradLine[]> {
   if (!isOdataConfigured() || !ventaCodes.length) return [];
   const numOrNull = (x: unknown): number | null => { const n = parseFloat(String(x).replace(",", ".")); return Number.isFinite(n) ? n : null; };
@@ -465,19 +482,21 @@ export async function saleGradLinesForVentas(ventaCodes: number[]): Promise<Sale
   const CHUNK = 50;
   for (let i = 0; i < ventaCodes.length; i += CHUNK) {
     const ors = ventaCodes.slice(i, i + CHUNK).map((c) => `CODIGO_VENTA eq ${c}`).join(" or ");
-    const rows = await odataSelect<{ CODIGO_VENTA: number; CLASE_PRODUCTO: string; ESFERA: string | number | null; CILINDRO: string | number | null; EJE: string | number | null }>(
+    const rows = await odataSelect<{ CODIGO_VENTA: number; CODIGO_LINEA: number; CLASE_PRODUCTO: string; AGRUPACION2: string; ESFERA: string | number | null; CILINDRO: string | number | null; EJE: string | number | null }>(
       "VX_LINEAS_VENTA",
       {
-        filter: andAll(centroEq("CENTRO_VENTA"), `(${ors})`, "(CLASE_PRODUCTO eq 'L' or CLASE_PRODUCTO eq 'C')"),
-        select: ["CODIGO_VENTA", "CLASE_PRODUCTO", "ESFERA", "CILINDRO", "EJE"],
+        filter: andAll(centroEq("CENTRO_VENTA"), `(${ors})`, `(CLASE_PRODUCTO eq 'L' or CLASE_PRODUCTO eq 'C' or AGRUPACION2 eq '${AGR2_MANUTENCAO_OCULAR}')`),
+        select: ["CODIGO_VENTA", "CODIGO_LINEA", "CLASE_PRODUCTO", "AGRUPACION2", "ESFERA", "CILINDRO", "EJE"],
       },
     ).catch(() => []);
     for (const r of rows) {
-      const clase = (r.CLASE_PRODUCTO || "").trim();
-      if (clase !== "L" && clase !== "C") continue;
       // ⚠️ OData serializa Int64 (CODIGO_VENTA) como STRING no JSON → coagir a número
       // para casar com o code numérico da venda (Number(v.Codigo)).
-      out.push({ codigoVenta: Number(r.CODIGO_VENTA), clase, esfera: numOrNull(r.ESFERA), cilindro: numOrNull(r.CILINDRO), eje: numOrNull(r.EJE) });
+      out.push({
+        codigoVenta: Number(r.CODIGO_VENTA), codigoLinea: Number(r.CODIGO_LINEA),
+        clase: (r.CLASE_PRODUCTO || "").trim(), agr2: (r.AGRUPACION2 || "").trim(),
+        esfera: numOrNull(r.ESFERA), cilindro: numOrNull(r.CILINDRO), eje: numOrNull(r.EJE),
+      });
     }
   }
   return out;

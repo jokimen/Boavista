@@ -36,7 +36,7 @@ import type {
 } from "@/types/visual";
 import { dateRangeFilter, select, selectAll, isVisualConfigured } from "./visual-client";
 import { isOdataConfigured, odataSelect } from "./odata-client";
-import { lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, convertedBudgetCodes, saleGradLinesForVentas, type LineSalesDetail } from "./odata-map";
+import { AGR2_MANUTENCAO_OCULAR, lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, convertedBudgetCodes, saleGradLinesForVentas, type LineSalesDetail } from "./odata-map";
 
 const CENTRO = process.env.VISUAL_CENTRO ?? "";
 
@@ -2034,16 +2034,25 @@ export async function weeklyClinicaReport(from: string, to: string): Promise<Wee
   const ventas = await fetchVentas(from, to);
 
   // Todas as vendas reais do período; a GRADUAÇÃO das linhas (a seguir) é que decide
-  // quais têm lente/LC e ligam a uma revisão. O valor creditado é o TOTAL da venda
-  // (net), mesmo com diversos/óculos de sol. Setores (óculos/LC) saem da graduação.
-  type Sale = { code: number; cliente: string; net: number };
+  // quais têm lente/LC e ligam a uma revisão. Creditado ao optometrista: o TOTAL da
+  // venda (net) em `fat`/`fatOpto`, mesmo com diversos/óculos de sol; a contactologia
+  // (`fatCl`) conta SÓ as suas linhas — ver mais abaixo.
+  type Sale = { code: number; cliente: string; net: number; lineNet: Map<number, number> };
   const sales: Sale[] = [];
   const clientSet = new Set<string>();
   for (const v of ventas) {
     if (v.Es_presupuesto === "S") continue;
     const code = Number(v.Codigo); if (!Number.isFinite(code)) continue;
     const net = num(v.Importe_bruto) - num(v.Importe_descuento_lineas) - num(v.Importe_DescuentoGlobal);
-    sales.push({ code, cliente: String(v.Codigo_cliente), net });
+    // € líquido POR LINHA (mesma fórmula do resto da app) — a contactologia soma só
+    // as linhas dela, não a venda inteira.
+    const ratio = lineDiscountRatio(v);
+    const lineNet = new Map<number, number>();
+    for (const l of v.lineas) {
+      const gross = num(l.Precio_unitario) * num(l.Cantidad);
+      lineNet.set(num(l.Codigo_linea), gross - num(l.Importe_descuento) - gross * ratio);
+    }
+    sales.push({ code, cliente: String(v.Codigo_cliente), net, lineNet });
     clientSet.add(String(v.Codigo_cliente));
   }
 
@@ -2054,12 +2063,19 @@ export async function weeklyClinicaReport(from: string, to: string): Promise<Wee
     fetchClinicRevisions(clients, "lentes"),
     fetchClinicRevisions(clients, "lentillas"),
   ]);
-  const saleKeys = new Map<number, { L: Set<string>; C: Set<string> }>();
+  // Por venda: graduações (L/C) para casar com a revisão + as linhas que contam para
+  // a contactologia (LC + líquidos de manutenção/saúde ocular — pedido do dono).
+  const saleKeys = new Map<number, { L: Set<string>; C: Set<string>; clLines: Set<number> }>();
+  const entry = (code: number) => {
+    const e = saleKeys.get(code) ?? { L: new Set<string>(), C: new Set<string>(), clLines: new Set<number>() };
+    saleKeys.set(code, e);
+    return e;
+  };
   for (const g of gradLines) {
+    const e = entry(g.codigoVenta);
+    if (g.clase === "C" || g.agr2 === AGR2_MANUTENCAO_OCULAR) e.clLines.add(g.codigoLinea);
     const k = gradKey(g.esfera, g.cilindro, g.eje); if (!k) continue;
-    const e = saleKeys.get(g.codigoVenta) ?? { L: new Set<string>(), C: new Set<string>() };
-    (g.clase === "C" ? e.C : e.L).add(k);
-    saleKeys.set(g.codigoVenta, e);
+    if (g.clase === "C") e.C.add(k); else if (g.clase === "L") e.L.add(k);
   }
 
   const opt = new Map<string, { count: number; fat: number; fatOpto: number; fatCl: number }>();
@@ -2069,6 +2085,10 @@ export async function weeklyClinicaReport(from: string, to: string): Promise<Wee
     const cand: { score: number; t: number; nm: string | null }[] = [];
     for (const r of revL.get(s.cliente) ?? []) { let sc = 0; for (const k of sk.L) if (r.keys.includes(k)) sc++; if (sc) cand.push({ score: sc, t: r.t, nm: r.nm }); }
     for (const r of revC.get(s.cliente) ?? []) { let sc = 0; for (const k of sk.C) if (r.keys.includes(k)) sc++; if (sc) cand.push({ score: sc, t: r.t, nm: r.nm }); }
+    // ⚠️ Vendas SÓ de líquidos/saúde ocular (balcão, sem graduação) ficam de fora: não
+    // há graduação que as ligue a um optometrista. Atribuí-las pela revisão de LC mais
+    // recente do cliente foi testado e AFASTOU-SE dos números reais do dono (erro
+    // 4,20pp → 5,90pp na semana 06-11/07) — logo não é assim que ele as conta.
     if (!cand.length) continue;
     cand.sort((a, b) => b.score - a.score || b.t - a.t); // + olhos coincidentes, depois mais recente
     const best = cand[0];
@@ -2076,7 +2096,9 @@ export async function weeklyClinicaReport(from: string, to: string): Promise<Wee
     const cur = opt.get(best.nm) ?? { count: 0, fat: 0, fatOpto: 0, fatCl: 0 };
     cur.count++; cur.fat += s.net;
     if (sk.L.size) cur.fatOpto += s.net; // € de vendas com óculos graduados
-    if (sk.C.size) cur.fatCl += s.net;   // € de vendas com lentes de contacto
+    // Contactologia = SÓ as linhas de lentes de contacto, líquidos de manutenção e
+    // saúde ocular (não a venda inteira: o cliente leva armação/sol no mesmo talão).
+    for (const ln of sk.clLines) cur.fatCl += s.lineNet.get(ln) ?? 0;
     opt.set(best.nm, cur);
   }
 
