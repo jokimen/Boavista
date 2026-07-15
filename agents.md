@@ -164,23 +164,32 @@ texto com `pdf-parse` v2: `new PDFParse({data}).getText()`).
   **vendas com seguro**. Lista por entidade (nº de vendas, valor total, desconto médio,
   comparticipação) e detalhe clicável `/entidades/[codigo]` (ticket médio, produtos mais vendidos,
   margem + cobertura, vendedores). `insurerEntities`/`insurerEntityDetail` em visual-map.
-  Particularidades **validadas contra os dados** (2025-2026) — contrariam o que estava aqui escrito:
-  - **A seguradora só existe na FATURA**; a `Ventas` NÃO tem nada de seguro (18 campos, nenhum).
-    A fatura felizmente traz `Usuario` (vendedor) e as `lineas`.
-  - ⚠️ **O modelo "FR/FT/NC" documentado antes NÃO se confirma** na BD própria: a **FR** é o
-    documento dominante (1131/1468 em Junho/2026) e **tem** desconto (92.312€) — não é "desc=0".
-    Há ainda FS/NS/ND. **Nº de vendas** = faturas positivas − notas de crédito (`Importe_bruto` < 0),
-    a mesma lógica já validada ao cêntimo para a Faturação (somar TODOS os documentos).
-  - ⚠️ **`Importe_asegurado`** (linha) seria a comparticipação exata mas o Visual só o preenche em
-    **~1%** dos casos (medido em Jun/25, Jan/26, Jun/26, Jul/26) → **inútil**. Logo comparticipação =
-    `Σ Importe_descuento`, e o "desconto médio" sai do MESMO campo (média vs total).
-  - ⚠️ **Margem só onde há custo**: as linhas da fatura têm `Codigo_articulo` (stock) mas **não**
-    `Codigo_producto` → as lentes (encomenda) não têm custo. Ligar fatura→venda por cliente+valor
-    acerta só **54%** e 4 meses de `Ventas` rebentam o timeout de 25s. Decisão do dono: mostrar a
-    margem só sobre as linhas com custo, com a **cobertura à vista** (~30%).
-  - O **NOME da seguradora não existe na API** (só o código) e a `aseguradora_config` está VAZIA →
-    mostram-se TODAS com o rótulo `Seguro «código»` até serem nomeadas no Admin (senão o menu ficava
-    vazio). Nas linhas, tira-se o prefixo `O.D.:`/`O.E.:` da descrição, senão a mesma lente conta 2x.
+  **Assenta nas VENDAS, não nas faturas** (decisão do dono). Particularidades **validadas contra os
+  dados** (2025-2026):
+  - **A seguradora só está na FATURA** (`FacturasClientes.Codigo_aseguradora`, REST); a `Ventas` NÃO
+    tem nada de seguro (validado na UNIÃO dos campos de 1386 vendas: 18 de cabeçalho, 14 de linha).
+    Também não é o `Codigo_cliente_pagador` (testado: só 1,3% das vendas têm pagador≠cliente e só 2
+    delas têm seguro — são familiares a pagar). Nenhuma vista OData tem campo de seguro.
+  - ✅ **A ponte é `VX_FACTURAS_CLIENTES.CODIGO_VENTA`** (OData) — liga fatura→venda, **96,8%** das
+    faturas com seguro, nenhuma com CODIGO_VENTA vazio. (`VX_LINEAS_FACTURAS_CLIENTES` liga até à
+    LINHA da venda: `CODIGO_VENTA`+`CODIGO_LINEA_VENTA`.) Adivinhar por cliente+valor só acertava 54%.
+    `invoiceVentaLinks` (odata-map) + `seguroPorVenta` (visual-map, cache 60s).
+  - ⚠️ **Filtrar por DATA, não por lotes de códigos**: em lotes de 50 eram ~58 chamadas × gap de
+    400ms = **81s**. Com 2 varreduras por data → ~35s (detalhe 6s, já cacheado). Janela das faturas =
+    `[from, to+30d]` (a fatura é da ENTREGA, nunca ANTES da venda); +30d dá exatamente os mesmos
+    números que +60d em Junho/2026 (769 vendas, 211.456,06€).
+  - Com a venda em mãos, **margem REAL** via `lineCostNet`+`entryCosts`: **~94% de cobertura** (vs
+    ~30% que dava pelas linhas da fatura, que não têm `Codigo_producto` → lentes sem custo).
+  - **Comparticipação** = desconto da VENDA (`Importe_descuento_lineas`+`Importe_DescuentoGlobal`) =
+    € que o cliente não paga (ex.: bruto 281 − 56,20 = 224,80 pagos). ⚠️ **`Importe_asegurado`**
+    (linha da fatura) seria o valor exato mas o Visual só o preenche em **~1%** dos casos (medido em
+    Jun/25, Jan/26, Jun/26, Jul/26) → **inútil**. O "desconto médio" é a média disto, não outro campo.
+  - ⚠️ O modelo **"FR(desc=0)/FT/NC"** documentado antes **NÃO se confirma** na BD própria: a FR é o
+    documento dominante (1131/1468 em Junho/2026) e TEM desconto (92.312€); há ainda FS/NS/ND.
+  - O **NOME da seguradora não existe na API** (só o código) → mostram-se TODAS com o rótulo
+    `Seguro «código»` até serem nomeadas em Admin → Seguradoras (o dono preenche-as; filtrar pelas
+    mapeadas dava menu vazio). Nos produtos tira-se o prefixo `O.D.:`/`O.E.:`, senão a mesma lente
+    conta 2x (uma por olho).
 - **Menus novos (OData)**: **Faturação** (VX_FACTURAS_CLIENTES), **Gestão de Caixa**
   (VX_MOVIMIENTOS_CAJA, sem 0€, KPIs por forma de pagamento/colaborador/dia), **Fornecedores/Rappel**
   (VX_FACTURAS_PROVEEDORES; Admin define grupo/objetivo/rappel — migração `005` `supplier_config`).

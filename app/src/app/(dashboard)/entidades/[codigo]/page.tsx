@@ -46,7 +46,8 @@ async function Detalhe({ codigo, from, to }: { codigo: string; from: string; to:
         <div className="flex items-baseline gap-6 mt-3">
           <span className="text-3xl font-semibold text-[#10b981]">{formatPercent(d.margemPct, 1)}</span>
           <span className="text-xs text-text-muted">
-            calculada sobre {formatPercent(d.cobertura, 0)} do valor (só artigos de stock — as lentes não têm custo na fatura)
+            calculada sobre {formatPercent(d.cobertura, 0)} do valor
+            {d.cobertura < 80 ? " — cobertura baixa: faltam faturas do laboratório, o número ainda não é fiável" : ""}
           </span>
         </div>
       </div>

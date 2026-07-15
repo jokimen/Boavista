@@ -36,7 +36,7 @@ import type {
 } from "@/types/visual";
 import { dateRangeFilter, select, selectAll, isVisualConfigured } from "./visual-client";
 import { isOdataConfigured, odataSelect } from "./odata-client";
-import { AGR2_MANUTENCAO_OCULAR, lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, convertedBudgetCodes, saleGradLinesForVentas, type LineSalesDetail } from "./odata-map";
+import { AGR2_MANUTENCAO_OCULAR, invoiceVentaLinks, lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, convertedBudgetCodes, saleGradLinesForVentas, type LineSalesDetail } from "./odata-map";
 
 const CENTRO = process.env.VISUAL_CENTRO ?? "";
 
@@ -2232,97 +2232,112 @@ async function monthlyInsurers(from: string, to: string, names: Record<string, s
 
 // ─── Entidades (seguros) — menu Entidades ─────────────────────────────────────
 /**
- * A seguradora só existe nas FATURAS (`FacturasClientes.Codigo_aseguradora`); a
- * VENDA não a tem (validado: os 18 campos de Ventas não trazem nada de seguro).
- * Por isso tudo aqui sai da fatura, que felizmente traz `Usuario` (o vendedor) e
- * as `lineas` (descrição, artigo, valores).
+ * Módulo assente nas **VENDAS** (decisão do dono), não nas faturas.
  *
- * Convenções (validadas nos dados, 2025-2026):
- *  - **Nº de vendas** = faturas LÍQUIDAS: as positivas (FR/FT/FS) menos as notas de
- *    crédito (NC/NS, que vêm com `Importe_bruto` negativo). É a mesma lógica já
- *    validada ao cêntimo para a Faturação: somar TODOS os documentos.
- *  - **Comparticipação** = Σ `Importe_descuento` das faturas com seguradora — o € que
- *    o cliente NÃO paga. ⚠️ `Importe_asegurado` (linha) seria o ideal mas o Visual só
- *    o preenche em ~1% dos casos (medido em 2025 e 2026) — inútil. Logo o "desconto
- *    médio" e a "comparticipação" saem do MESMO campo (média vs total).
- *  - **Margem**: só as linhas com `Codigo_articulo` (stock: armações/sol/líquidos)
- *    têm custo. As lentes vêm sem artigo E sem `Codigo_producto` na fatura, e ligar
- *    fatura→venda só acerta 54% (por cliente+valor) além de rebentar o timeout da API.
- *    Por isso devolve-se também a `cobertura` — decisão do dono: mostrar a margem só
- *    onde há custo, com a cobertura à vista.
+ * A seguradora só está na FATURA (`FacturasClientes.Codigo_aseguradora`, REST) — a
+ * venda não a regista (validado: a união dos campos de 1386 vendas não traz nada de
+ * seguro). A ponte é o **OData `VX_FACTURAS_CLIENTES.CODIGO_VENTA`**, que liga a
+ * fatura à venda: liga **96,8%** das faturas com seguro, nenhuma com CODIGO_VENTA
+ * vazio (adivinhar por cliente+valor só acertava 54%).
+ *
+ * Com a venda em mãos, tudo o resto sai dela e usa a maquinaria normal:
+ *  - vendedor (`Usuario`), linhas, categorias, e **margem REAL** via `lineCostNet` +
+ *    `entryCosts` (cadeia entrada→fatura do fornecedor) — cobertura ~97% num mês
+ *    liquidado, contra os ~30% que dava pelas linhas da fatura.
+ *  - **Comparticipação** = o desconto da venda (`Importe_descuento_lineas` +
+ *    `Importe_DescuentoGlobal`): numa venda com seguro é o € que o cliente NÃO paga
+ *    (ex.: bruto 281 − 56,20 = 224,80 pagos). ⚠️ `Importe_asegurado` (linha da fatura)
+ *    seria o valor exato mas o Visual só o preenche em ~1% dos casos (medido em
+ *    Jun/25, Jan/26, Jun/26 e Jul/26) — inútil.
  */
 export interface InsurerEntityRow {
   codigo: string;
   name: string;
-  /** Faturas líquidas de notas de crédito. */
   vendas: number;
-  /** Σ Importe_bruto (as NC negativas abatem). */
+  /** Venda líquida (o que o cliente pagou). */
   total: number;
   /** € médio de comparticipação por venda. */
   descMedio: number;
-  /** Σ Importe_descuento = € que o cliente não pagou. */
+  /** € que o cliente não pagou por ter seguro. */
   comparticipacao: number;
 }
 
-interface FacturaConLineas {
-  Codigo: string | number; Fecha?: string; Referencia?: string;
-  Codigo_aseguradora?: string | number | null;
-  Codigo_cliente?: string | number;
-  Usuario?: string | null;
-  Importe_bruto?: string | number;
-  Importe_descuento?: string | number;
-  lineas?: {
-    Codigo_articulo?: string | null; Descripcion?: string | null;
-    Cantidad?: string | number; Importe_bruto?: string | number;
-    Importe_descuento?: string | number; ImporteNeto?: string | number;
-  }[];
-}
-
-// Faturas do período (com linhas), cacheadas — a lista e o detalhe usam as mesmas.
-const facturasCache = new Map<string, { promise: Promise<FacturaConLineas[]>; expires: number }>();
-function facturasComLineas(from: string, to: string): Promise<FacturaConLineas[]> {
+/**
+ * Seguradora de cada VENDA do período: OData liga venda→fatura, a REST dá o
+ * `Codigo_aseguradora` dessa fatura. Mapa `codigoVenta` → código da seguradora.
+ */
+const ventaSeguroCache = new Map<string, { promise: Promise<Map<number, string>>; expires: number }>();
+function seguroPorVenta(from: string, to: string): Promise<Map<number, string>> {
   const key = `${from}|${to}`;
-  const hit = facturasCache.get(key);
+  const hit = ventaSeguroCache.get(key);
   if (hit && hit.expires > Date.now()) return hit.promise;
-  const filter = [dateRangeFilter("Fecha", new Date(from), new Date(to)), centroFilter()].filter(Boolean).join(" and ");
-  // Sem `fields`: precisamos das `lineas` (e restringir campos faz a REST dar 500
-  // quando o filtro usa um campo fora da lista — ver Performance no CLAUDE.md).
-  const promise = selectAll<FacturaConLineas>("FacturasClientes", { filter }, 1000).catch((e) => {
-    facturasCache.delete(key);
-    console.error("facturasComLineas falhou:", e instanceof Error ? e.message : e);
-    return [] as FacturaConLineas[];
+  const promise = (async () => {
+    // ⚠️ Por DATA, não por lotes de códigos: pedir as faturas em lotes de 50 dava ~58
+    // chamadas que, serializadas com o gap de 400ms da API, levavam 81s. Assim são 2
+    // varreduras (uma OData, uma REST).
+    // Janela: a fatura é emitida na ENTREGA, logo é do dia da venda ou POSTERIOR —
+    // nunca antes. +30d chega: validado em Junho/2026, dá exatamente os mesmos números
+    // que +60d (769 vendas, 211.456,06€) e poupa uma varredura de faturas.
+    const fim = new Date(new Date(to).getTime() + 30 * 86_400_000).toISOString();
+    const [vxFaturas, restFaturas] = await Promise.all([
+      invoiceVentaLinks(from, fim),
+      (async () => {
+        const filter = [dateRangeFilter("Fecha", new Date(from), new Date(fim)), centroFilter()].filter(Boolean).join(" and ");
+        // ⚠️ com `fields` restrito, os campos do FILTRO têm de constar da lista (senão 500).
+        return selectAll<{ Codigo: string | number; Codigo_aseguradora?: string | number | null }>(
+          "FacturasClientes",
+          { filter, fields: ["Codigo", "Centro", "Fecha", "Codigo_aseguradora"] },
+          1000,
+        ).catch(() => []);
+      })(),
+    ]);
+    const segDeFatura = new Map<string, string>();
+    for (const r of restFaturas) {
+      const s = String(r.Codigo_aseguradora ?? "").trim();
+      if (s && s !== "0") segDeFatura.set(String(r.Codigo), s);
+    }
+    const out = new Map<number, string>();
+    for (const [codFatura, codVenta] of vxFaturas) {
+      const s = segDeFatura.get(String(codFatura));
+      // Uma venda gera vários documentos (FR/FS/NC…); basta um trazer a seguradora.
+      if (s && !out.has(codVenta)) out.set(codVenta, s);
+    }
+    return out;
+  })().catch((e) => {
+    ventaSeguroCache.delete(key);
+    console.error("seguroPorVenta falhou:", e instanceof Error ? e.message : e);
+    return new Map<number, string>();
   });
-  facturasCache.set(key, { promise, expires: Date.now() + VENTAS_TTL_MS });
+  ventaSeguroCache.set(key, { promise, expires: Date.now() + VENTAS_TTL_MS });
   return promise;
-}
-
-/** Código da seguradora de uma fatura ("" quando não tem). */
-function aseguradoraDe(f: FacturaConLineas): string {
-  const c = String(f.Codigo_aseguradora ?? "").trim();
-  return c && c !== "0" ? c : "";
 }
 
 /**
  * Nome a mostrar: o do Admin → Seguradoras ou, em falta, "Seguro «código»".
- * O NOME da seguradora **não existe na API** (só o `Codigo_aseguradora`), por isso
- * não há como o semear — tem de ser rotulado à mão no Admin. Mesmo assim mostram-se
- * TODAS: com a `aseguradora_config` vazia, filtrar pelas mapeadas dava um menu vazio.
+ * O NOME da seguradora **não existe na API** (só o `Codigo_aseguradora`) — tem de ser
+ * rotulado à mão no Admin. Mostram-se TODAS: filtrar pelas mapeadas dava menu vazio.
  */
 function insurerLabel(codigo: string, names: Record<string, string>): string {
   return names[codigo]?.trim() || `Seguro ${codigo}`;
 }
 
-/** Vendas com seguro agregadas por seguradora (menu Entidades). */
+/** Desconto total de uma venda = o € que o cliente não pagou (=comparticipação, c/ seguro). */
+function ventaDesconto(v: VisualVenta): number {
+  return num(v.Importe_descuento_lineas) + num(v.Importe_DescuentoGlobal);
+}
+
+/** Vendas COM SEGURO agregadas por entidade (menu Entidades). */
 export async function insurerEntities(from: string, to: string, names: Record<string, string>): Promise<InsurerEntityRow[]> {
-  const facturas = await facturasComLineas(from, to);
+  const [ventas, seguros] = await Promise.all([fetchVentas(from, to), seguroPorVenta(from, to)]);
   const agg = new Map<string, { vendas: number; total: number; desc: number }>();
-  for (const f of facturas) {
-    const cod = aseguradoraDe(f); if (!cod) continue;
-    const bruto = num(f.Importe_bruto);
+  for (const v of ventas) {
+    if (v.Es_presupuesto === "S") continue;
+    const cod = seguros.get(Number(v.Codigo)); if (!cod) continue;
+    const desc = ventaDesconto(v);
     const a = agg.get(cod) ?? { vendas: 0, total: 0, desc: 0 };
-    a.vendas += bruto < 0 ? -1 : 1; // nota de crédito abate uma venda
-    a.total += bruto;
-    a.desc += num(f.Importe_descuento);
+    a.vendas += 1;
+    a.total += num(v.Importe_bruto) - desc;
+    a.desc += desc;
     agg.set(cod, a);
   }
   return [...agg.entries()]
@@ -2341,50 +2356,52 @@ export interface InsurerEntityDetail {
   vendas: number; total: number; comparticipacao: number; descMedio: number;
   /** Ticket médio = total ÷ nº de vendas. */
   ticket: number;
-  /** Margem % — só sobre as linhas COM custo conhecido (ver `cobertura`). */
+  /** Margem % — sobre as vendas com custo conhecido (ver `cobertura`). */
   margemPct: number;
-  /** % do € que tem custo conhecido (as lentes não têm — ver nota do módulo). */
+  /** % do € com custo conhecido. Baixa em meses recentes: as faturas do laboratório
+   *  ainda não chegaram (é cobertura, não margem). */
   cobertura: number;
   produtos: { desc: string; qty: number; valor: number }[];
   vendedores: { name: string; vendas: number; valor: number }[];
 }
 
-/** Detalhe de UMA seguradora (página /entidades/[codigo]). */
+/** Detalhe de UMA entidade (página /entidades/[codigo]), a partir das VENDAS. */
 export async function insurerEntityDetail(
   from: string, to: string, codigo: string, names: Record<string, string>,
 ): Promise<InsurerEntityDetail | null> {
-  const facturas = (await facturasComLineas(from, to)).filter((f) => aseguradoraDe(f) === codigo);
-  if (!facturas.length) return null;
-
-  // Artigos referenciados (só os de stock têm Codigo_articulo) → custo do maestro.
-  const codes = new Set<string>();
-  for (const f of facturas) for (const l of f.lineas ?? []) { const c = norm13(l.Codigo_articulo); if (c) codes.add(c); }
-  const articles = codes.size ? await loadArticleIndexFor(codes).catch(() => new Map<string, ArticleInfo>()) : new Map<string, ArticleInfo>();
+  const [ventas, seguros, articles, entryCosts] = await Promise.all([
+    fetchVentas(from, to), seguroPorVenta(from, to),
+    articleIndexForRange(from, to), lineEntryCosts(from, to),
+  ]);
+  const minhas = ventas.filter((v) => v.Es_presupuesto !== "S" && seguros.get(Number(v.Codigo)) === codigo);
+  if (!minhas.length) return null;
 
   let vendas = 0, total = 0, desc = 0, netTotal = 0, netCoberto = 0, custo = 0;
   const prod = new Map<string, { qty: number; valor: number }>();
   const vend = new Map<string, { vendas: number; valor: number }>();
-  for (const f of facturas) {
-    const bruto = num(f.Importe_bruto);
-    const sign = bruto < 0 ? -1 : 1;
-    vendas += sign; total += bruto; desc += num(f.Importe_descuento);
-    const u = (f.Usuario || "—").trim() || "—";
+  for (const v of minhas) {
+    const d = ventaDesconto(v);
+    const net = num(v.Importe_bruto) - d;
+    vendas++; total += net; desc += d;
+    const u = (v.Usuario || "—").trim() || "—";
     const cv = vend.get(u) ?? { vendas: 0, valor: 0 };
-    cv.vendas += sign; cv.valor += bruto;
+    cv.vendas += 1; cv.valor += net;
     vend.set(u, cv);
-    for (const l of f.lineas ?? []) {
+    const ratio = lineDiscountRatio(v);
+    for (const l of v.lineas) {
       const qty = num(l.Cantidad);
-      const net = num(l.ImporteNeto);
-      netTotal += net;
-      // Produto: a descrição existe sempre (as lentes não têm artigo). Tira-se o
-      // prefixo do olho ("O.D.:"/"O.E.:") senão a MESMA lente conta duas vezes,
-      // uma por olho, e o top de produtos sai partido ao meio.
-      const d = (l.Descripcion ?? "").split("\n")[0].replace(/^\s*O\.[DE]\.\s*:\s*/i, "").trim() || "—";
-      const p = prod.get(d) ?? { qty: 0, valor: 0 };
-      p.qty += qty; p.valor += net;
-      prod.set(d, p);
-      const art = articles.get(norm13(l.Codigo_articulo));
-      if (art && art.cost > 0) { netCoberto += net; custo += art.cost * qty; }
+      const gross = num(l.Precio_unitario) * qty;
+      const lineNet = gross - num(l.Importe_descuento) - gross * ratio;
+      netTotal += lineNet;
+      // Produto: tira-se o prefixo do olho ("O.D.:"/"O.E.:") senão a MESMA lente
+      // conta duas vezes, uma por olho, e o top sai partido ao meio.
+      const desc0 = (l.Descripcion ?? "").split("\n")[0].replace(/^\s*O\.[DE]\.\s*:\s*/i, "").trim() || "—";
+      const p = prod.get(desc0) ?? { qty: 0, valor: 0 };
+      p.qty += qty; p.valor += lineNet;
+      prod.set(desc0, p);
+      // Margem REAL: maestro para o stock, cadeia entrada→fatura para as encomendas.
+      const cn = lineCostNet(v, l, articles, ratio, entryCosts);
+      if (cn) { netCoberto += cn.net; custo += cn.cost; }
     }
   }
   return {

@@ -334,11 +334,12 @@ export const CHART_INFO: Record<string, InfoEntry> = {
     title: "Vendas por Entidade",
     body: (
       <div className="space-y-3 text-sm text-text-strong">
-        <p>Vendas com <strong>seguro</strong>, por entidade, no período filtrado. A seguradora só existe nas <strong>faturas</strong> (a venda não a regista), por isso tudo aqui sai delas.</p>
+        <p>As <strong>vendas</strong> com seguro do período filtrado, por entidade. A seguradora só está na <strong>fatura</strong> (a venda não a regista), mas a fatura diz a que venda pertence — daí tudo o resto sair da venda.</p>
         <ul className="space-y-1.5">
-          <Li><strong>Nº de vendas</strong> = faturas emitidas <strong>menos</strong> as notas de crédito (uma venda pode gerar vários documentos).</Li>
+          <Li><strong>Nº de vendas</strong> = vendas reais (não faturas: uma venda gera vários documentos).</Li>
+          <Li><strong>Valor total</strong> = venda líquida, ou seja o que o cliente pagou.</Li>
           <Li><strong>Comparticipação</strong> = o € que o cliente <strong>não pagou</strong> por ter seguro.</Li>
-          <Li><strong>Desconto médio</strong> = essa comparticipação a dividir pelo nº de vendas — vem do mesmo campo, é a média em vez do total.</Li>
+          <Li><strong>Desconto médio</strong> = essa comparticipação a dividir pelo nº de vendas — é a média em vez do total.</Li>
         </ul>
         <p className="text-xs text-text-muted">Entidades sem nome aparecem como &quot;Seguro «código»&quot;: o Visual não guarda o nome da seguradora. Dá-lhes nome em Admin → Seguradoras.</p>
       </div>
@@ -348,10 +349,10 @@ export const CHART_INFO: Record<string, InfoEntry> = {
     title: "Margem das vendas com seguro",
     body: (
       <div className="space-y-3 text-sm text-text-strong">
-        <p>Margem calculada <strong>só sobre as linhas com custo conhecido</strong> — os artigos de <strong>stock</strong> (armações, óculos de sol, líquidos).</p>
+        <p>Margem <strong>real</strong> das vendas desta entidade: custo do maestro para os artigos de stock e, nas <strong>encomendas</strong> (lentes), o custo verdadeiro da cadeia <strong>entrada → fatura do fornecedor</strong>.</p>
         <ul className="space-y-1.5">
-          <Li>As <strong>lentes</strong> são produto de encomenda: a fatura não traz o código do produto, por isso não têm custo e ficam de fora.</Li>
-          <Li>A <strong>cobertura</strong> diz sobre que % do valor a margem foi calculada — quanto mais baixa, menos representativa.</Li>
+          <Li>Calculada só sobre as linhas <strong>com custo conhecido</strong> — a <strong>cobertura</strong> diz sobre que % do valor.</Li>
+          <Li>Num mês fechado a cobertura anda pelos <strong>~94%</strong>. Se estiver bem mais baixa, é porque as <strong>faturas do laboratório ainda não chegaram</strong> — é a cobertura que está incompleta, não a margem que é má.</Li>
         </ul>
       </div>
     ),
