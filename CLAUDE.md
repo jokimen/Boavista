@@ -81,8 +81,25 @@ Config em `.env.local`: `VISUAL_API_URL=https://shop.tematicasoftware.com/api`,
   Admin), `diversos` (resto). A classe da linha vem do **OData** (`VX_LINEAS_VENTA.CLASE_PRODUCTO`,
   via `lineClasses`) — a REST NÃO traz a classe da linha; fallback ao maestro. `categoryFromClase`
   + `lineCategory` em visual-map. (Os OBJETIVOS mantêm "Óculos Graduados" = L+G, ver Funcionalidades.)
-- Linha→artigo: `Codigo_articulo` (13 díg) ou `Codigo_producto` (forma `@centro` = Codigo sem
-  zeros à esquerda). `norm13()` normaliza; `articleForLine()` resolve.
+- Linha→artigo: `Codigo_articulo` (13 díg) ou `Codigo_producto` (forma `@centro`). `norm13()`
+  normaliza; `articleForLine()` resolve.
+  ⚠️ **`Codigo_producto` NÃO é o mesmo espaço de códigos que o `Codigo` do artigo** (validado
+  2026-07-15): o produto `0000000006@1` é a lente **BIOFINITY TORICA XR**, mas o artigo
+  `0000000000006` é o líquido **SOLO CARE AQUA**. Normalizar o produto a 13 díg e procurá-lo no
+  maestro dá **falsos positivos**. Por isso `lineCategory` só compara a lista de Saúde Ocular com
+  `Codigo_articulo` (as linhas de saúde ocular trazem-no sempre; 32/32 medidas).
+  ⚠️ `articleForLine()` **mantém** esse fallback `norm13(Codigo_producto)` → resolve a LC para o
+  artigo errado (125 das 172 linhas de LC de uma semana só têm `Codigo_producto`) e daí saem
+  marca/`Precio_compra`/PVP errados. Afeta margem/marcas das LC — **por corrigir**.
+- **Saúde ocular / líquidos = `AGRUPACION_2 = 'MANUTENCAO OCULAR'`** (validado 2026-07-15). A lista
+  de códigos do Admin estava VAZIA → foi semeada com os **116 artigos** dessa agrupação (62 líquidos,
+  38 lágrimas, 8 higiene palpebral, 5 suplementos, 3 limpeza enzimática; inclui 10 descontinuados,
+  de propósito, p/ as vendas antigas continuarem a categorizar). Script idempotente com dry-run:
+  `npx tsx --env-file=.env.local scripts/seed-saude-ocular.mts [--commit]`. ⚠️ **classe `P` ≠ saúde
+  ocular** — é o balde de tudo o que não é L/G/S/C; os vizinhos NÃO entram: `PRODUTOS|MANUTENCAO LC`
+  são ventosas, `ACESSORIOS|LIMPEZA`/`DIVERSOS|LIMPEZA` são anti-embaciamento/panos de óculos,
+  `PRÓTESES OCULAR` é outro serviço. Nota: em `VX_ARTICULOS` o campo é `AGRUPACION_2` (underscore),
+  em `VX_LINEAS_VENTA` é `AGRUPACION2` (sem).
 - **Venda líquida = `Importe_bruto − Importe_descuento_lineas − Importe_DescuentoGlobal`**
   (campos da venda — KPIs de vendas/ticket/conversão não precisam de artigos).
 - **PVP = `Precio_venta × (1 + IVA/100)`** (Precio_venta é SEM IVA). Produto premium =
@@ -122,7 +139,8 @@ texto com `pdf-parse` v2: `new PDFParse({data}).getText()`).
 
 ## Funcionalidades (estado atual)
 - **Objetivos mensais** (Admin → Objetivos, migração `004`): tabela `monthly_targets`
-  (ano/mês/categoria/€) + `saude_ocular_products` (códigos). Categorias-objetivo: global,
+  (ano/mês/categoria/€) + `saude_ocular_products` (códigos — ✅ **semeados 2026-07-15**: 116 artigos,
+  ver Saúde Ocular abaixo). Categorias-objetivo: global,
   oculos_graduados (=L+armações), oculos_sol, lentes_contacto, saude_ocular. `lib/targets/`
   (`constants.ts` client-safe + `store.ts` server). Painel no Dashboard; objetivo do Hoje =
   global ÷ dias úteis. **Objetivos POR VENDEDOR** (migração `014` `employee_targets`): em

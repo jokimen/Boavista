@@ -317,9 +317,14 @@ function lineCategory(
   saude: Set<string>,
   articles: Map<string, ArticleInfo>,
 ): SaleCategory {
+  // ⚠️ SÓ por `Codigo_articulo`: `Codigo_producto` é OUTRO espaço de códigos e a sua
+  // forma normalizada colide com códigos de artigo reais (medido: o produto
+  // `0000000006@1` é a lente BIOFINITY TORICA XR, mas o artigo `0000000000006` é o
+  // líquido SOLO CARE AQUA → as LC caíam em "Saúde Ocular"). As linhas de saúde
+  // ocular trazem sempre `Codigo_articulo` (32/32 na semana medida), logo não se perde
+  // nada. Ver a mesma armadilha em `articleForLine`.
   const a = norm13(l.Codigo_articulo);
-  const p = norm13(l.Codigo_producto);
-  if ((a && saude.has(a)) || (p && saude.has(p))) return "saude_ocular";
+  if (a && saude.has(a)) return "saude_ocular";
   const clase = classMap.get(`${v.Codigo}-${l.Codigo_linea}`) ?? articleForLine(l, articles)?.claseProducto ?? null;
   return categoryFromClase(clase);
 }
