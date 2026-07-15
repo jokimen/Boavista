@@ -565,14 +565,43 @@ export async function stockByStore(codigoArticulo: string): Promise<StoreStock[]
 export interface SupplierPurchase {
   proveedor: string;
   nome: string;
+  /** Compras LÍQUIDAS: faturas − devoluções, SEM as notas de crédito de rappel. */
   total: number;
   count: number; // nº de faturas
+  /** € de rappel que o fornecedor JÁ creditou no período (notas de crédito de
+   *  rappel, em positivo). Não entra em `total` — ver `RAPPEL_LINE_RE`. */
+  rappelCreditado: number;
 }
-interface VxFacturaProv { CODIGO: number; CENTRO: number; PROVEEDOR: string; FECHA: string; }
+interface VxFacturaProv {
+  CODIGO: number; CENTRO: number; PROVEEDOR: string; FECHA: string;
+  /** Desconto do CABEÇALHO da fatura (%), a somar aos das linhas. */
+  DESCUENTO_1: number; DESCUENTO_2: number;
+}
 interface VxLineaFacturaProv {
   CODIGO_FACTURA: number; CENTRO_FACTURA: number; PROVEEDOR: string;
   PRECIO: number; CANTIDAD: number; DESCUENTO_1: number; DESCUENTO_2: number;
+  DESCRIPCION: string;
 }
+
+/**
+ * Linha que é RAPPEL creditado pelo fornecedor — NÃO é uma compra.
+ *
+ * O Visual lança o rappel como uma nota de crédito de fornecedor (linha com
+ * `CANTIDAD = -1` e preço positivo), pelo que era somado às compras como valor
+ * NEGATIVO. Isso é circular: ganhar rappel reduzia a base de compras sobre a qual
+ * o próprio rappel é calculado (medido em 2026 YTD: −289.762€, dos quais ZEISS
+ * −238.318€ — as compras à ZEISS apareciam 238 mil abaixo do real).
+ *
+ * A descrição diz sempre "RAPPEL" (validado em 2025+2026, 45 linhas): "RAPPEL ZEISS
+ * - MAIO 2026", "RAPPEL MENSAL JUNHO 2026", "RAPPEL VTS 24/25", "RAPPEL MKT 23/24",
+ * "RAPPEL COMPRAS 2025", "RAPPEL MIYOEXPERT 25". Apanha também as raras linhas
+ * POSITIVAS de correção ("CORREÇÃO RAPPEL NC …", "RAPPEL MENSAL" a estornar uma NC
+ * anterior) — que também não são compras.
+ *
+ * ⚠️ As DEVOLUÇÕES de produto (também `CANTIDAD < 0`) NÃO entram aqui: essas abatem
+ * mesmo às compras (rappel calcula-se sobre compras líquidas) — decisão do dono.
+ */
+const RAPPEL_LINE_RE = /RAPPEL|BONIFICA|\bBONUS\b/i;
 interface VxProveedor { PROVEEDOR: string; NOMBRE: string; TIPO?: string; }
 
 /** Lista de fornecedores (para configuração no Admin). */
@@ -583,41 +612,60 @@ export async function listSuppliers(): Promise<{ proveedor: string; nome: string
     .sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
-/** Compras por fornecedor no período (soma das linhas das faturas recebidas). */
+/**
+ * Compras por fornecedor no período (soma das linhas das faturas recebidas).
+ * Compras = faturas − devoluções, **sem** as notas de crédito de rappel (essas vão
+ * à parte em `rappelCreditado`). Aplica os descontos da LINHA e os do CABEÇALHO.
+ */
 export async function supplierPurchases(from: string, to: string): Promise<SupplierPurchase[]> {
   const facturas = await odataSelect<VxFacturaProv>("VX_FACTURAS_PROVEEDORES", {
     filter: andAll(centroEq(), dateFilter("FECHA", from, to)),
-    select: ["CODIGO", "CENTRO", "PROVEEDOR", "FECHA"],
+    select: ["CODIGO", "CENTRO", "PROVEEDOR", "FECHA", "DESCUENTO_1", "DESCUENTO_2"],
   });
   if (!facturas.length) return [];
+  const headDisc = new Map<number, number>(
+    facturas.map((f) => [f.CODIGO, (1 - num(f.DESCUENTO_1) / 100) * (1 - num(f.DESCUENTO_2) / 100)]),
+  );
   // Soma das linhas por fatura (em lotes por CODIGO_FACTURA).
   const totalByFactura = new Map<number, number>();
+  const rappelByFactura = new Map<number, number>();
   const codes = facturas.map((f) => f.CODIGO);
   const CHUNK = 50;
   for (let i = 0; i < codes.length; i += CHUNK) {
     const ors = codes.slice(i, i + CHUNK).map((c) => `CODIGO_FACTURA eq ${c}`).join(" or ");
     const lines = await odataSelect<VxLineaFacturaProv>("VX_LINEAS_FACTURAS_PROVEEDOR", {
       filter: `(${ors})`,
-      select: ["CODIGO_FACTURA", "PRECIO", "CANTIDAD", "DESCUENTO_1", "DESCUENTO_2"],
+      select: ["CODIGO_FACTURA", "PRECIO", "CANTIDAD", "DESCUENTO_1", "DESCUENTO_2", "DESCRIPCION"],
     });
     for (const l of lines) {
       const bruto = num(l.PRECIO) * num(l.CANTIDAD);
-      const net = bruto * (1 - num(l.DESCUENTO_1) / 100) * (1 - num(l.DESCUENTO_2) / 100);
+      // Descontos da linha × desconto do cabeçalho da fatura.
+      const net = bruto * (1 - num(l.DESCUENTO_1) / 100) * (1 - num(l.DESCUENTO_2) / 100)
+        * (headDisc.get(l.CODIGO_FACTURA) ?? 1);
+      if (RAPPEL_LINE_RE.test(l.DESCRIPCION ?? "")) {
+        // Rappel creditado: sai das compras e conta em positivo (vem como qty −1).
+        rappelByFactura.set(l.CODIGO_FACTURA, (rappelByFactura.get(l.CODIGO_FACTURA) ?? 0) - net);
+        continue;
+      }
       totalByFactura.set(l.CODIGO_FACTURA, (totalByFactura.get(l.CODIGO_FACTURA) ?? 0) + net);
     }
   }
   // Nomes dos fornecedores.
   const provs = await odataSelect<VxProveedor>("VX_PROVEEDORES", { select: ["PROVEEDOR", "NOMBRE"] });
   const nameOf = new Map(provs.map((p) => [p.PROVEEDOR, p.NOMBRE]));
-  // Agrega por fornecedor.
-  const byProv = new Map<string, { total: number; count: number }>();
+  // Agrega por fornecedor. Uma fatura que seja SÓ rappel não conta como compra.
+  const byProv = new Map<string, { total: number; count: number; rappel: number }>();
   for (const f of facturas) {
-    const cur = byProv.get(f.PROVEEDOR) ?? { total: 0, count: 0 };
+    const cur = byProv.get(f.PROVEEDOR) ?? { total: 0, count: 0, rappel: 0 };
     cur.total += totalByFactura.get(f.CODIGO) ?? 0;
-    cur.count += 1;
+    cur.rappel += rappelByFactura.get(f.CODIGO) ?? 0;
+    if (totalByFactura.has(f.CODIGO)) cur.count += 1;
     byProv.set(f.PROVEEDOR, cur);
   }
   return [...byProv.entries()]
-    .map(([proveedor, x]) => ({ proveedor, nome: nameOf.get(proveedor) || proveedor, total: round(x.total), count: x.count }))
+    .map(([proveedor, x]) => ({
+      proveedor, nome: nameOf.get(proveedor) || proveedor,
+      total: round(x.total), count: x.count, rappelCreditado: round(x.rappel),
+    }))
     .sort((a, b) => b.total - a.total);
 }

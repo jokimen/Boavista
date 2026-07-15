@@ -145,9 +145,12 @@ async function FornecedoresPeriodo({ from, to }: { from: string; to: string }) {
     const objetivo = provs.reduce((s, p) => s + (cfgOf(p.proveedor)?.objetivo_compra ?? 0), 0);
     // Rappel estimado = soma(rappel de cada fornecedor) — % do escalão atingido × compras.
     const rappel = provs.reduce((s, p) => s + rappelForTotal(p.total, cfgOf(p.proveedor) ?? {}), 0);
-    return { grupo: g, label: SUPPLIER_GROUP_LABELS[g], compras, objetivo, rappel, count: provs.length };
+    const creditado = provs.reduce((s, p) => s + p.rappelCreditado, 0);
+    return { grupo: g, label: SUPPLIER_GROUP_LABELS[g], compras, objetivo, rappel, creditado, count: provs.length };
   }).filter((g) => g.count > 0);
   const totalRappel = byGroup.reduce((s, g) => s + g.rappel, 0);
+  // Rappel REAL: notas de crédito de rappel que o fornecedor já lançou no período.
+  const totalCreditado = purchases.reduce((s, p) => s + p.rappelCreditado, 0);
 
   return (
     <>
@@ -156,12 +159,16 @@ async function FornecedoresPeriodo({ from, to }: { from: string; to: string }) {
           <KpiCard data={{ label: "Total Compras", value: Math.round(totalCompras), unit: "€" }} />
           <KpiCard data={{ label: "Nº Fornecedores", value: purchases.length, unit: "" }} />
           <KpiCard data={{ label: "Rappel Estimado", value: Math.round(totalRappel), unit: "€" }} />
-          <KpiCard data={{ label: "Grupos Configurados", value: byGroup.filter(g => g.count > 0).length, unit: "" }} />
+          <KpiCard data={{ label: "Rappel Creditado", value: Math.round(totalCreditado), unit: "€" }} />
         </div>
 
         <div className="rounded-xl bg-bg-card border border-border p-4">
           <h3 className="text-sm font-semibold text-text-primary mb-1">Por Grupo de Fornecedores</h3>
-          <p className="text-xs text-text-muted mb-4">Grupos, objetivos de compra e % de rappel definem-se no Admin → Fornecedores.</p>
+          <p className="text-xs text-text-muted mb-4">
+            Grupos, objetivos de compra e % de rappel definem-se no Admin → Fornecedores.
+            &quot;Estimado&quot; é o rappel calculado pelos patamares; &quot;Creditado&quot; é o que o
+            fornecedor já lançou em nota de crédito no período.
+          </p>
           <DataTable
             data={byGroup.map((g) => ({ ...g, id: g.grupo }))}
             keyField="id"
@@ -171,7 +178,8 @@ async function FornecedoresPeriodo({ from, to }: { from: string; to: string }) {
               { key: "compras", label: "Compras", render: r => <span className="font-medium">{formatCurrency(r.compras)}</span> },
               { key: "objetivo", label: "Objetivo", render: r => <span className="text-text-secondary">{r.objetivo > 0 ? formatCurrency(r.objetivo) : "—"}</span> },
               { key: "cumprimento", label: "Cumpr.", render: r => <span className="text-[#3b82f6]">{r.objetivo > 0 ? formatPercent((r.compras / r.objetivo) * 100, 0) : "—"}</span> },
-              { key: "rappel", label: "Rappel", render: r => <span className="font-medium text-[#10b981]">{formatCurrency(r.rappel)}</span> },
+              { key: "rappel", label: "Rappel estim.", render: r => <span className="font-medium text-[#10b981]">{formatCurrency(r.rappel)}</span> },
+              { key: "creditado", label: "Rappel creditado", render: r => <span className="text-text-secondary">{r.creditado ? formatCurrency(r.creditado) : "—"}</span> },
             ]}
           />
         </div>
@@ -196,7 +204,8 @@ async function FornecedoresPeriodo({ from, to }: { from: string; to: string }) {
               { key: "count", label: "Faturas", render: r => <span className="text-text-secondary">{r.count}</span> },
               { key: "total", label: "Compras", render: r => <span className="font-medium">{formatCurrency(r.total)}</span> },
               { key: "rappel_pct", label: "Rappel %", render: r => <span className="text-text-muted">{r.rappel_pct ? `${r.rappel_pct}%` : "—"}</span> },
-              { key: "rappel_val", label: "Rappel €", render: r => <span className="text-[#10b981]">{r.rappel_pct ? formatCurrency(r.rappel_val) : "—"}</span> },
+              { key: "rappel_val", label: "Rappel estim.", render: r => <span className="text-[#10b981]">{r.rappel_pct ? formatCurrency(r.rappel_val) : "—"}</span> },
+              { key: "rappelCreditado", label: "Rappel creditado", render: r => <span className="text-text-secondary">{r.rappelCreditado ? formatCurrency(r.rappelCreditado) : "—"}</span> },
             ]}
           />
         </div>
