@@ -308,11 +308,12 @@ estar também na **Vercel** (env de produção). Em **produção** (Vercel + `ww
   `/api/register` por convite, Admin SDK). Novos perfis nascem `is_active=false` + proxy bloqueia inativos.
 - ✅ **Credenciais Visual** completas e verificadas (login OK, token + dados reais). Dado como
   resolvido — a rotação da password era só higiene opcional, fica ao critério do dono.
-- ⏳ **Regras Firestore por publicar**: `firebase deploy --only firestore:rules` (negam acesso cliente).
+- ✅ **Regras Firestore publicadas** (2026-07-15): `firebase deploy --only firestore:rules` feito e
+  verificado com o SDK cliente — leitura, listagem, escrita e o cofre `totp_secrets` dão todos
+  `permission-denied`. O Admin SDK contorna-as (app OK). Republicar sempre que `firestore.rules` mudar.
 - **Operacional (na UI, pelo dono)**: o pré-mapeamento de **44 fornecedores** por marca (14 oftálmicas /
   12 LC+saúde / 18 armações+sol) estava em `app/scripts/supplier_groups_premap.sql` (Supabase, histórico).
-  ⚠️ Com a migração para Firebase, confirmar se a coleção `supplier_config` no Firestore foi semeada;
-  se não, reconfigurar em Admin → Fornecedores.
+  ✅ `supplier_config` **semeado no Firestore** (35 grupos, 2026-07-13) — o premap SQL é histórico morto.
   Falta: confirmar 3 marcados ⚠️ (Zeiss3/A.Winter, Indo, Seiko) e atribuir grupo aos restantes
   distribuidores PT genéricos (Admin → Fornecedores). 3 grupos: aros+sol JUNTOS (`armacoes_sol`).
   Definir também objetivos mensais (Admin → Objetivos — alimentam Dashboard, Hoje e alertas de ritmo).
