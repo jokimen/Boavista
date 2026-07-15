@@ -74,7 +74,9 @@ export async function odataSelect<T>(entitySet: string, q: OdataQuery = {}): Pro
       throw new Error(`OData ${res.status} em ${entitySet}: ${body.slice(0, 200)}`);
     }
     const json = (await res.json()) as { value?: T[]; "odata.nextLink"?: string; "@odata.nextLink"?: string };
-    if (Array.isArray(json.value)) out.push(...json.value);
+    // Um a um: `out.push(...json.value)` rebenta com RangeError (stack) quando a
+    // página traz muitas linhas — ex.: o catálogo inteiro de VX_ARTICULOS.
+    if (Array.isArray(json.value)) for (const row of json.value) out.push(row);
     const next = json["odata.nextLink"] ?? json["@odata.nextLink"];
     url = next ? (next.startsWith("http") ? next : `${BASE}/${next}`) : "";
   }
