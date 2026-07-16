@@ -303,6 +303,57 @@ export async function purchaseQtyByArticle(from: string, to: string): Promise<Ma
   return out;
 }
 
+/**
+ * Compras (unidades rececionadas) de linhas de entrada SEM artigo no maestro —
+ * lentes de laboratório e LC de encomenda ligam-se à linha de venda por
+ * `CODIGO_VENTA`+`CODIGO_LINEA_VENTA`, e a sua natureza vem da `CLASE_PRODUCTO`
+ * dessa linha. Devolve `Map<CLASE_PRODUCTO, qty>`. Serve para contar as lentes
+ * oftálmicas (classe 'L') nas "COMPRAS MENSAIS", que de outra forma ficam a zero
+ * (não têm `CODIGO_ARTICULO`, logo escapam a `purchaseQtyByArticle`).
+ */
+export async function purchaseNoArticleQtyByClass(from: string, to: string): Promise<Map<string, number>> {
+  if (!isOdataConfigured()) return new Map();
+  const entradas = await odataSelect<VxEntrada>("VX_ENTRADAS", {
+    filter: andAll(centroEq(), dateFilter("FECHA", from, to)),
+    select: ["CODIGO", "ES_DEVOLUCION"],
+  });
+  const codes = entradas.filter((e) => e.ES_DEVOLUCION !== "S").map((e) => e.CODIGO);
+  const need = new Map<string, number>(); // `${CODIGO_VENTA}-${CODIGO_LINEA_VENTA}` → qty
+  const CH = 50;
+  for (let i = 0; i < codes.length; i += CH) {
+    const ors = codes.slice(i, i + CH).map((c) => `CODIGO_ENTRADA eq ${c}`).join(" or ");
+    const lines = await odataSelect<VxLineaEntrada & { CODIGO_VENTA: number | null; CODIGO_LINEA_VENTA: number | null }>(
+      "VX_LINEAS_ENTRADA",
+      { filter: `(${ors})`, select: ["CODIGO_ARTICULO", "CANTIDAD", "CODIGO_VENTA", "CODIGO_LINEA_VENTA"] },
+    );
+    for (const l of lines) {
+      if (norm13(l.CODIGO_ARTICULO)) continue;            // tem artigo → já contado noutro lado
+      if (l.CODIGO_VENTA == null || l.CODIGO_LINEA_VENTA == null) continue; // sem venda → serviço
+      const k = `${l.CODIGO_VENTA}-${l.CODIGO_LINEA_VENTA}`;
+      need.set(k, (need.get(k) ?? 0) + num(l.CANTIDAD));
+    }
+  }
+  if (!need.size) return new Map();
+  // classe (CLASE_PRODUCTO) de cada linha de venda referenciada
+  const ventaCodes = [...new Set([...need.keys()].map((k) => k.split("-")[0]))];
+  const claseByKey = new Map<string, string>();
+  for (let i = 0; i < ventaCodes.length; i += CH) {
+    const ors = ventaCodes.slice(i, i + CH).map((c) => `CODIGO_VENTA eq ${c}`).join(" or ");
+    const vlines = await odataSelect<{ CODIGO_VENTA: number; CODIGO_LINEA: number; CLASE_PRODUCTO: string }>(
+      "VX_LINEAS_VENTA",
+      { filter: andAll(centroEq("CENTRO_VENTA"), `(${ors})`), select: ["CODIGO_VENTA", "CODIGO_LINEA", "CLASE_PRODUCTO"] },
+    );
+    for (const vl of vlines) claseByKey.set(`${vl.CODIGO_VENTA}-${vl.CODIGO_LINEA}`, String(vl.CLASE_PRODUCTO ?? "").trim());
+  }
+  const out = new Map<string, number>();
+  for (const [k, qty] of need) {
+    const clase = claseByKey.get(k);
+    if (!clase) continue;
+    out.set(clase, (out.get(clase) ?? 0) + qty);
+  }
+  return out;
+}
+
 export interface StockMovement { date: string; type: "entrada" | "venda"; qty: number; cost: number; ref: string; }
 
 /** Histórico de movimentos (entradas + vendas) de um artigo nos últimos ~2 anos. */

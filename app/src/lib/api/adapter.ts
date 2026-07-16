@@ -23,6 +23,10 @@ const cSalesSummaryLight = unstable_cache(
   async (from: string, to: string) => (await import("./visual-map")).salesSummaryLight(from, to),
   ["sales-summary-light"], { revalidate: SALES_REVALIDATE },
 );
+const cSalesTicketsBySector = unstable_cache(
+  async (from: string, to: string) => (await import("./visual-map")).salesTicketsBySector(from, to),
+  ["sales-tickets-by-sector"], { revalidate: SALES_REVALIDATE },
+);
 const cSalesByEmployee = unstable_cache(
   async (from: string, to: string) => (await import("./visual-map")).salesByEmployee(from, to),
   ["sales-by-employee"], { revalidate: SALES_REVALIDATE },
@@ -55,6 +59,15 @@ export async function fetchSalesSummaryLight(from: string, to: string) {
     return mockSalesSummary(from, to);
   }
   return cSalesSummaryLight(from, to);
+}
+
+/** Ticket médio separado por setor do vendedor: balcão vs clínica. Leve (REST). */
+export async function fetchSalesTicketsBySector(from: string, to: string) {
+  if (USE_MOCK) {
+    const s = await fetchSalesSummaryLight(from, to);
+    return { balcao: s.avg_ticket, clinica: s.avg_ticket, balcaoCount: 0, clinicaCount: 0, balcaoSales: 0, clinicaSales: 0 };
+  }
+  return cSalesTicketsBySector(from, to);
 }
 
 export async function fetchSalesByCategory(from: string, to: string, saudeCodes: Iterable<string> = []) {

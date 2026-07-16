@@ -161,6 +161,7 @@ export function vBarChart(doc: jsPDF, data: BarDatum[], opts: { x?: number; y?: 
   const labelSize = n <= 6 ? 8 : 6;
   doc.setFont("helvetica", "normal"); doc.setFontSize(labelSize);
   const horizFit = data.every((d) => doc.getTextWidth(d.label.toUpperCase()) <= gap - 1.5);
+  const horizontal = n <= 6 || horizFit;
   data.forEach((d, i) => {
     const cx = x + i * gap + gap / 2;
     const bx = cx - barW / 2;
@@ -172,7 +173,7 @@ export function vBarChart(doc: jsPDF, data: BarDatum[], opts: { x?: number; y?: 
     doc.text(fmt(d.value), cx, y + h - bh - 1.6, { align: "center" });
     // rótulo abaixo do eixo
     text(doc, INK); doc.setFontSize(labelSize);
-    if (n <= 6 || horizFit) doc.text(d.label.toUpperCase(), cx, y + h + (n <= 6 ? 5 : 4), { align: "center" });
+    if (horizontal) doc.text(d.label.toUpperCase(), cx, y + h + (n <= 6 ? 5 : 4), { align: "center" });
     else doc.text(d.label.toUpperCase(), cx + 1.6, y + h + 2, { angle: 90, align: "right" });
   });
   // rótulo do eixo Y (rotacionado à esquerda)
@@ -180,6 +181,12 @@ export function vBarChart(doc: jsPDF, data: BarDatum[], opts: { x?: number; y?: 
     text(doc, GREYTXT); doc.setFontSize(7);
     doc.text(opts.yLabel, x - 9, y + h / 2, { angle: 90, align: "center" });
   }
+  // Devolve o Y onde os rótulos TERMINAM (horizontais: baixos; rotacionados 90°:
+  // estendem-se para baixo pelo comprimento do texto) — para o chamador colocar a
+  // legenda logo por baixo sem colisão (ver monthly-pdf: legendas dinâmicas).
+  doc.setFontSize(labelSize);
+  const maxLabelW = Math.max(0, ...data.map((d) => doc.getTextWidth(d.label.toUpperCase())));
+  return y + h + (horizontal ? (n <= 6 ? 5 : 4) + 2.5 : 2 + maxLabelW);
 }
 
 // ─── Gráfico de barras horizontal ─────────────────────────────────────────────

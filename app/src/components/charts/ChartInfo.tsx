@@ -116,6 +116,28 @@ export const CHART_INFO: Record<string, InfoEntry> = {
       </div>
     ),
   },
+  "kpi-ticket-balcao": {
+    title: "Ticket Médio Balcão — como é calculado",
+    body: (
+      <div className="space-y-3 text-sm text-text-strong">
+        <p>Ticket médio só das vendas feitas pela <strong>equipa de balcão</strong> (vendedores de óptica).</p>
+        <p className="rounded-lg bg-bg-elevated border border-border px-3 py-2 text-xs font-mono text-text-secondary">
+          ticket balcão = vendas líquidas do balcão ÷ nº dessas vendas
+        </p>
+      </div>
+    ),
+  },
+  "kpi-ticket-clinica": {
+    title: "Ticket Médio Clínica — como é calculado",
+    body: (
+      <div className="space-y-3 text-sm text-text-strong">
+        <p>Ticket médio das vendas feitas pela <strong>clínica/caixa</strong> (optometristas e restante equipa, não-balcão).</p>
+        <p className="rounded-lg bg-bg-elevated border border-border px-3 py-2 text-xs font-mono text-text-secondary">
+          ticket clínica = vendas líquidas da clínica ÷ nº dessas vendas
+        </p>
+      </div>
+    ),
+  },
   "kpi-num-vendas": {
     title: "Nº de Vendas — como é calculado",
     body: (

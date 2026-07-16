@@ -6,32 +6,27 @@ import { KpiCard } from "@/components/kpi/KpiCard";
 import { DataTable } from "@/components/tables/DataTable";
 import { ExportData } from "@/components/tables/ExportData";
 import { ChartInfo } from "@/components/charts/ChartInfo";
-import { GlobalFilters } from "@/components/layout/GlobalFilters";
+import { ManualDateRange } from "@/components/layout/ManualDateRange";
 import { canExport } from "@/lib/auth/permissions";
-import { getGlobalFilters } from "@/lib/filters/cookie";
-import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
 import { insurerEntities } from "@/lib/api/visual-map";
-import { fetchEmployees } from "@/lib/api/adapter";
 import { getAseguradoraConfig } from "@/lib/aseguradoras/store";
 import { formatCurrency } from "@/lib/utils";
 
-// Barra de filtros — colaboradores via API (lentos no 1º load). Em Suspense.
-async function FiltersBar({ value }: { value: DashboardFilters }) {
-  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
-  try { employees = await fetchEmployees(); } catch { employees = []; }
-  return <GlobalFilters employees={employees} value={value} />;
-}
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isYmd = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 function BoxFallback({ msg }: { msg: string }) {
   return <div className="rounded-xl bg-bg-card border border-border p-6 text-sm text-text-secondary">{msg}</div>;
 }
 
 /** Vendas com seguro, por entidade. Pesado (faturas + linhas) → em Suspense. */
-async function Entidades({ from, to, podeExportar }: { from: string; to: string; podeExportar: boolean }) {
+async function Entidades({ fromISO, toISO, fromYmd, toYmd, podeExportar }: {
+  fromISO: string; toISO: string; fromYmd: string; toYmd: string; podeExportar: boolean;
+}) {
   const config = await getAseguradoraConfig().catch(() => ({}));
   const names: Record<string, string> = {};
   for (const [cod, row] of Object.entries(config)) if (row.ativo !== false) names[cod] = row.nome;
-  const rows = await insurerEntities(from, to, names).catch(() => []);
+  const rows = await insurerEntities(fromISO, toISO, names).catch(() => []);
 
   if (!rows.length) return <BoxFallback msg="Sem vendas com seguro no período selecionado." />;
 
@@ -39,6 +34,7 @@ async function Entidades({ from, to, podeExportar }: { from: string; to: string;
   const totValor = rows.reduce((s, r) => s + r.total, 0);
   const totComp = rows.reduce((s, r) => s + r.comparticipacao, 0);
   const porRotular = rows.filter((r) => !names[r.codigo]?.trim()).length;
+  const detailQuery = `?from=${fromYmd}&to=${toYmd}`;
 
   return (
     <>
@@ -83,7 +79,7 @@ async function Entidades({ from, to, podeExportar }: { from: string; to: string;
             {
               key: "name", label: "Entidade",
               render: (r) => (
-                <Link href={`/entidades/${encodeURIComponent(r.codigo)}`} className="text-[#3b82f6] hover:underline font-medium">
+                <Link href={`/entidades/${encodeURIComponent(r.codigo)}${detailQuery}`} className="text-[#3b82f6] hover:underline font-medium">
                   {r.name}
                 </Link>
               ),
@@ -99,21 +95,28 @@ async function Entidades({ from, to, podeExportar }: { from: string; to: string;
   );
 }
 
-export default async function EntidadesPage() {
+export default async function EntidadesPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string }> }) {
   const session = await requireModule("entidades");
-  const filters = await getGlobalFilters();
-  const { from, to } = resolveDateRange(filters);
+  const sp = await searchParams;
   const podeExportar = canExport(session.permissions, "entidades");
+
+  // Intervalo APENAS dos campos De/Até (URL). Default: mês atual (dia 1 → hoje).
+  const now = new Date();
+  const fromYmd = isYmd(sp.from) ? sp.from : ymd(new Date(now.getFullYear(), now.getMonth(), 1));
+  const toYmd = isYmd(sp.to) ? sp.to : ymd(now);
+  const [fy, fm, fd] = fromYmd.split("-").map(Number);
+  const [ty, tm, td] = toYmd.split("-").map(Number);
+  const fromISO = new Date(fy, fm - 1, fd).toISOString();
+  const toISO = new Date(ty, tm - 1, td + 1).toISOString(); // dia seguinte (exclusivo) → inclui o "Até"
 
   return (
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title="Entidades" />
       <div className="p-6 space-y-6">
-        <Suspense fallback={<div className="h-10" />}>
-          <FiltersBar value={filters} />
-        </Suspense>
-        <Suspense fallback={<BoxFallback msg="A carregar vendas com seguro…" />}>
-          <Entidades from={from} to={to} podeExportar={podeExportar} />
+        {/* Datas De/Até (comandam o intervalo do menu) */}
+        <ManualDateRange initialFrom={fromYmd} initialTo={toYmd} />
+        <Suspense key={`${fromYmd}-${toYmd}`} fallback={<BoxFallback msg="A carregar vendas com seguro…" />}>
+          <Entidades fromISO={fromISO} toISO={toISO} fromYmd={fromYmd} toYmd={toYmd} podeExportar={podeExportar} />
         </Suspense>
       </div>
     </div>

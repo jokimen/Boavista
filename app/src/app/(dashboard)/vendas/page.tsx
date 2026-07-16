@@ -10,7 +10,7 @@ import { CrossSellTable } from "./CrossSellTable";
 import { MonthlyReportButton } from "./MonthlyReportButton";
 import { resolveDateRange, resolvePreviousRange, type DashboardFilters } from "@/lib/filters/range";
 import { getGlobalFilters } from "@/lib/filters/cookie";
-import { fetchSalesSummary, fetchSalesSummaryLight, fetchSalesByCategory, fetchSalesByEmployee, fetchEmployees, fetchTopBrands, fetchCrossSell, fetchSecondPairSales, fetchTreatmentAttach } from "@/lib/api/adapter";
+import { fetchSalesSummary, fetchSalesSummaryLight, fetchSalesTicketsBySector, fetchSalesByCategory, fetchSalesByEmployee, fetchEmployees, fetchTopBrands, fetchCrossSell, fetchSecondPairSales, fetchTreatmentAttach } from "@/lib/api/adapter";
 import { getSaudeOcularCodes } from "@/lib/targets/store";
 import { ExportData } from "@/components/tables/ExportData";
 import { canExport } from "@/lib/auth/permissions";
@@ -31,18 +31,24 @@ async function FiltersBar({ value }: { value: DashboardFilters }) {
 const KpiSkeleton = () => <div className="rounded-xl bg-bg-card border border-border h-[92px] animate-pulse" />;
 const KpiUnavailable = () => <div className="rounded-xl bg-bg-card border border-border h-[92px] flex items-center justify-center text-xs text-text-muted">—</div>;
 
-// KPIs rápidos (REST leve, sem OData): Total Vendas + Ticket. Aparecem em ~1-2s.
+// KPIs rápidos (REST leve, sem OData): Total Vendas + Ticket balcão/clínica. ~1-2s.
 async function FastKpis({ from, to, prevFrom, prevTo, prevLabel }: { from: string; to: string; prevFrom: string; prevTo: string; prevLabel: string }) {
-  let s, p;
+  let s, p, tkt, tktPrev;
   try {
-    [s, p] = await Promise.all([fetchSalesSummaryLight(from, to), fetchSalesSummaryLight(prevFrom, prevTo)]);
+    [s, p, tkt, tktPrev] = await Promise.all([
+      fetchSalesSummaryLight(from, to),
+      fetchSalesSummaryLight(prevFrom, prevTo),
+      fetchSalesTicketsBySector(from, to),
+      fetchSalesTicketsBySector(prevFrom, prevTo),
+    ]);
   } catch {
-    return <>{Array.from({ length: 2 }).map((_, i) => <KpiUnavailable key={i} />)}</>;
+    return <>{Array.from({ length: 3 }).map((_, i) => <KpiUnavailable key={i} />)}</>;
   }
   return (
     <>
       <KpiCard data={{ label: "Total Vendas", value: s.total_sales, unit: "€", infoId: "kpi-vendas", change: pctChange(s.total_sales, p.total_sales), changePeriod: prevLabel }} />
-      <KpiCard data={{ label: "Ticket Médio", value: s.avg_ticket, unit: "€", infoId: "kpi-ticket", change: pctChange(s.avg_ticket, p.avg_ticket), changePeriod: prevLabel }} />
+      <KpiCard data={{ label: "Ticket Médio Balcão", value: tkt.balcao, unit: "€", infoId: "kpi-ticket-balcao", change: pctChange(tkt.balcao, tktPrev.balcao), changePeriod: prevLabel }} />
+      <KpiCard data={{ label: "Ticket Médio Clínica", value: tkt.clinica, unit: "€", infoId: "kpi-ticket-clinica", change: pctChange(tkt.clinica, tktPrev.clinica), changePeriod: prevLabel }} />
     </>
   );
 }
@@ -235,8 +241,8 @@ export default async function VendasPage() {
           {canExportVendas && <MonthlyReportButton />}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Suspense fallback={<>{Array.from({ length: 2 }).map((_, i) => <KpiSkeleton key={i} />)}</>}>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <Suspense fallback={<>{Array.from({ length: 3 }).map((_, i) => <KpiSkeleton key={i} />)}</>}>
             <FastKpis from={from} to={to} prevFrom={prev.from} prevTo={prev.to} prevLabel={prev.label} />
           </Suspense>
           <Suspense fallback={<>{Array.from({ length: 2 }).map((_, i) => <KpiSkeleton key={i} />)}</>}>

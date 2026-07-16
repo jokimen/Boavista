@@ -4,19 +4,13 @@ import { TopBar } from "@/components/layout/TopBar";
 import { KpiCard } from "@/components/kpi/KpiCard";
 import { DataTable } from "@/components/tables/DataTable";
 import { ChartInfo } from "@/components/charts/ChartInfo";
-import { GlobalFilters } from "@/components/layout/GlobalFilters";
-import { getGlobalFilters } from "@/lib/filters/cookie";
-import { resolveDateRange, type DashboardFilters } from "@/lib/filters/range";
+import { ManualDateRange } from "@/components/layout/ManualDateRange";
 import { insurerEntityDetail } from "@/lib/api/visual-map";
-import { fetchEmployees } from "@/lib/api/adapter";
 import { getAseguradoraConfig, type AseguradoraConfig } from "@/lib/aseguradoras/store";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
-async function FiltersBar({ value }: { value: DashboardFilters }) {
-  let employees: Awaited<ReturnType<typeof fetchEmployees>> = [];
-  try { employees = await fetchEmployees(); } catch { employees = []; }
-  return <GlobalFilters compact employees={employees} value={value} />;
-}
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isYmd = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 function BoxFallback({ msg }: { msg: string }) {
   return <div className="rounded-xl bg-bg-card border border-border p-6 text-sm text-text-secondary">{msg}</div>;
@@ -83,12 +77,24 @@ async function Detalhe({ codigo, from, to }: { codigo: string; from: string; to:
   );
 }
 
-export default async function EntidadeDetailPage({ params }: { params: Promise<{ codigo: string }> }) {
+export default async function EntidadeDetailPage({ params, searchParams }: {
+  params: Promise<{ codigo: string }>;
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
   await requireModule("entidades");
   const { codigo } = await params;
-  const filters = await getGlobalFilters();
-  const { from, to } = resolveDateRange(filters);
+  const sp = await searchParams;
   const cod = decodeURIComponent(codigo);
+
+  // Intervalo herdado do menu Entidades (URL ?from&to). Default: mês atual.
+  const now = new Date();
+  const fromYmd = isYmd(sp.from) ? sp.from : ymd(new Date(now.getFullYear(), now.getMonth(), 1));
+  const toYmd = isYmd(sp.to) ? sp.to : ymd(now);
+  const [fy, fm, fd] = fromYmd.split("-").map(Number);
+  const [ty, tm, td] = toYmd.split("-").map(Number);
+  const fromISO = new Date(fy, fm - 1, fd).toISOString();
+  const toISO = new Date(ty, tm - 1, td + 1).toISOString();
+
   const config = await getAseguradoraConfig().catch(() => ({} as AseguradoraConfig));
   const titulo = config[cod]?.nome?.trim() || `Seguro ${cod}`;
 
@@ -96,11 +102,9 @@ export default async function EntidadeDetailPage({ params }: { params: Promise<{
     <div className="flex flex-col h-full overflow-auto">
       <TopBar title={titulo} backHref="/entidades" />
       <div className="p-6 space-y-6">
-        <Suspense fallback={<div className="h-10" />}>
-          <FiltersBar value={filters} />
-        </Suspense>
-        <Suspense fallback={<BoxFallback msg="A carregar detalhe da entidade…" />}>
-          <Detalhe codigo={cod} from={from} to={to} />
+        <ManualDateRange initialFrom={fromYmd} initialTo={toYmd} />
+        <Suspense key={`${fromYmd}-${toYmd}`} fallback={<BoxFallback msg="A carregar detalhe da entidade…" />}>
+          <Detalhe codigo={cod} from={fromISO} to={toISO} />
         </Suspense>
       </div>
     </div>

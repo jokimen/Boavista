@@ -65,8 +65,8 @@ export function buildMonthlyPdf(data: MonthlyReport, author = "Joaquim Oliveira"
   page(() => {
     sectionTitle(doc, ["Vendas Mensais", monthLabel], 52);
     const s = [...data.sellers].sort(byName);
-    vBarChart(doc, s.map((x, i) => ({ label: x.name, value: x.count, color: SERIES[i % SERIES.length] })), { y: 80, h: 70 });
-    legend(doc, s.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), 158);
+    const yb = vBarChart(doc, s.map((x, i) => ({ label: x.name, value: x.count, color: SERIES[i % SERIES.length] })), { y: 80, h: 70 });
+    legend(doc, s.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), yb + 4);
     text(doc, NAVY); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
     doc.text("VALOR POR TIPO DE PRODUTO", PAGE_W / 2, 188, { align: "center" });
     hBarChart(doc, [
@@ -138,8 +138,8 @@ export function buildMonthlyPdf(data: MonthlyReport, author = "Joaquim Oliveira"
   // P9 — % média de desconto (por vendedor + por seguro)
   page(() => {
     sectionTitle(doc, ["% MÉDIA DE DESCONTO", monthLabel], 52);
-    vBarChart(doc, data.sellerDiscount.map((x, i) => ({ label: x.name, value: x.pct, color: SERIES[i % SERIES.length] })), { y: 80, h: 60 });
-    legend(doc, data.sellerDiscount.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), 150);
+    const ybd = vBarChart(doc, data.sellerDiscount.map((x, i) => ({ label: x.name, value: x.pct, color: SERIES[i % SERIES.length] })), { y: 80, h: 60 });
+    legend(doc, data.sellerDiscount.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), ybd + 4);
     if (data.descPorSeguro.length) {
       text(doc, NAVY); doc.setFont("helvetica", "bold"); doc.setFontSize(11);
       doc.text("% MEDIA DESC SEGUROS", PAGE_W / 2, 182, { align: "center" });
@@ -166,8 +166,8 @@ export function buildMonthlyPdf(data: MonthlyReport, author = "Joaquim Oliveira"
   page(() => {
     sectionTitle(doc, ["Nº DE ORÇAMENTOS", monthLabel], 52);
     const o = [...data.orcamentos].sort(byName);
-    vBarChart(doc, o.map((x, i) => ({ label: x.name, value: x.count, color: SERIES[i % SERIES.length] })), { y: 85, h: 90 });
-    legend(doc, o.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), 185);
+    const ybo = vBarChart(doc, o.map((x, i) => ({ label: x.name, value: x.count, color: SERIES[i % SERIES.length] })), { y: 85, h: 90 });
+    legend(doc, o.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), ybo + 4);
   });
 
   // P11 — Aparelhos auditivos (vendedor € + MARCAS APARELHOS por quantidade)
@@ -231,8 +231,8 @@ export function buildMonthlyPdf(data: MonthlyReport, author = "Joaquim Oliveira"
   page(() => {
     sectionTitle(doc, ["TICKET MEDIO"], 52);
     const t = [...data.ticket].sort(byName);
-    vBarChart(doc, t.map((x, i) => ({ label: x.name, value: x.ticket, color: SERIES[i % SERIES.length] })), { y: 85, h: 90 });
-    legend(doc, t.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), 185);
+    const ybt = vBarChart(doc, t.map((x, i) => ({ label: x.name, value: x.ticket, color: SERIES[i % SERIES.length] })), { y: 85, h: 90 });
+    legend(doc, t.map((x, i) => ({ label: x.name, color: SERIES[i % SERIES.length] })), ybt + 4);
   });
 
   // P16 — Dados mensais (ranking %)

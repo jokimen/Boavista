@@ -36,7 +36,7 @@ import type {
 } from "@/types/visual";
 import { dateRangeFilter, select, selectAll, isVisualConfigured } from "./visual-client";
 import { isOdataConfigured, odataSelect } from "./odata-client";
-import { AGR2_MANUTENCAO_OCULAR, invoiceVentaLinks, lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, convertedBudgetCodes, saleGradLinesForVentas, type LineSalesDetail } from "./odata-map";
+import { AGR2_MANUTENCAO_OCULAR, invoiceVentaLinks, lastEntryByArticle, lineEntryCostsForVentas, lensTreatmentLines, lineSalesDetailsForVentas, listSuppliers, salesAggByArticle, purchaseQtyByArticle, purchaseNoArticleQtyByClass, convertedBudgetCodes, saleGradLinesForVentas, type LineSalesDetail } from "./odata-map";
 
 const CENTRO = process.env.VISUAL_CENTRO ?? "";
 
@@ -1954,6 +1954,38 @@ async function ytdTotals(to: string, nYears: number): Promise<{ year: number; co
 const OPTICA_SALES_TEAM = new Set(["ALDINA", "ELISA", "FATIMA", "GISLAINE", "MARTA", "JOSE", "NUNO", "VITOR"]);
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
 
+export interface SectorTickets {
+  /** Ticket médio (€) das vendas da equipa de BALCÃO (OPTICA_SALES_TEAM). */
+  balcao: number;
+  /** Ticket médio (€) das vendas da CLÍNICA/caixa (restantes Usuarios). */
+  clinica: number;
+  balcaoCount: number; clinicaCount: number;
+  balcaoSales: number; clinicaSales: number;
+}
+
+/**
+ * Ticket médio SEPARADO por setor do vendedor: "balcão" (equipa de vendas,
+ * `OPTICA_SALES_TEAM`) vs "clínica" (optometristas/caixa — Conceição, Ana, MROSA,
+ * PG…). Leve: uma ida às Ventas (cacheada), sem OData. Cada venda real conta pelo
+ * seu total líquido, atribuída ao setor do seu `Usuario`.
+ */
+export async function salesTicketsBySector(from: string, to: string): Promise<SectorTickets> {
+  const all = await fetchVentas(from, to, true);
+  const ventas = all.filter(isRealSale);
+  let bSales = 0, bCount = 0, cSales = 0, cCount = 0;
+  for (const v of ventas) {
+    const net = ventaNet(v);
+    if (OPTICA_SALES_TEAM.has(normName(v.Usuario || ""))) { bSales += net; bCount += 1; }
+    else { cSales += net; cCount += 1; }
+  }
+  return {
+    balcao: bCount ? round(bSales / bCount) : 0,
+    clinica: cCount ? round(cSales / cCount) : 0,
+    balcaoCount: bCount, clinicaCount: cCount,
+    balcaoSales: round(bSales), clinicaSales: round(cSales),
+  };
+}
+
 /** Relatório SEMANAL de óptica (armações + sol + lentes oftálmicas) por vendedor. */
 export async function weeklyOpticaReport(from: string, to: string): Promise<WeeklyOpticaReport> {
   // Vendas por vendedor = TOTAL líquido de cada venda real (todas as categorias),
@@ -2226,22 +2258,24 @@ function saudeTipo(desc: string): string {
 const SAUDE_TIPOS = ["LAGRIMAS", "LIQ MANUT", "PERÓXIDO", "SUPLEMENTOS", "OUTROS"];
 
 /** Clientes novos do mês (VX_CLIENTES por FECHA_ALTA): faixa etária. */
-async function monthlyNewClients(from: string, to: string): Promise<{ total: number; byAge: { label: string; count: number }[] }> {
-  if (!isOdataConfigured()) return { total: 0, byAge: [] };
+async function monthlyNewClients(from: string, to: string): Promise<{ total: number; byAge: { label: string; count: number }[]; codes: Set<string> }> {
+  if (!isOdataConfigured()) return { total: 0, byAge: [], codes: new Set() };
   const p = (n: number) => String(n).padStart(2, "0");
   const dt = (s: string) => { const d = new Date(s); return `datetime'${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T00:00:00'`; };
   const filter = `CENTRO eq 1 and FECHA_ALTA ge ${dt(from)} and FECHA_ALTA lt ${dt(to)}`;
-  const rows = await odataSelect<{ FECHA_NACIMIENTO: string | null }>("VX_CLIENTES", { filter, select: ["FECHA_NACIMIENTO", "FECHA_ALTA", "CENTRO"] }).catch(() => []);
+  const rows = await odataSelect<{ CODIGO: string | number; FECHA_NACIMIENTO: string | null }>("VX_CLIENTES", { filter, select: ["CODIGO", "FECHA_NACIMIENTO", "FECHA_ALTA", "CENTRO"] }).catch(() => []);
   const buckets = ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80-89", "90-99"];
   const counts = new Array(buckets.length).fill(0);
   const now = Date.now();
+  const codes = new Set<string>();
   for (const r of rows) {
+    codes.add(String(r.CODIGO ?? "").trim());
     if (!r.FECHA_NACIMIENTO) continue;
     const age = Math.floor((now - new Date(r.FECHA_NACIMIENTO).getTime()) / (365.25 * 86_400_000));
     const idx = Math.min(Math.floor(age / 10), buckets.length - 1);
     if (idx >= 0) counts[idx]++;
   }
-  return { total: rows.length, byAge: buckets.map((label, i) => ({ label, count: counts[i] })) };
+  return { total: rows.length, byAge: buckets.map((label, i) => ({ label, count: counts[i] })), codes };
 }
 
 /** Seguros do mês (REST FacturasClientes): clientes por seguradora, % desc médio
@@ -2250,7 +2284,7 @@ async function monthlyNewClients(from: string, to: string): Promise<{ total: num
  *  comparticipação que o cliente NÃO pagou) e NC (nota de crédito que anula a FR,
  *  desc=0). Como FR/NC têm desc=0, somar `Importe_descuento` por seguradora dá
  *  diretamente o € comparticipado. */
-async function monthlyInsurers(from: string, to: string, names: Record<string, string>): Promise<{ bySeguro: { name: string; count: number }[]; descPorSeguro: { name: string; pct: number }[]; eurPorSeguro: { name: string; eur: number }[] }> {
+async function monthlyInsurers(from: string, to: string, names: Record<string, string>): Promise<{ bySeguro: { name: string; count: number }[]; clientsBySeguro: { name: string; clients: string[] }[]; descPorSeguro: { name: string; pct: number }[]; eurPorSeguro: { name: string; eur: number }[] }> {
   const filter = [dateRangeFilter("Fecha", new Date(from), new Date(to)), centroFilter()].filter(Boolean).join(" and ");
   const fields = ["Codigo", "Centro", "Fecha", "Codigo_aseguradora", "Codigo_cliente", "Importe_bruto", "Importe_descuento"];
   const rows = await selectAll<{ Codigo_aseguradora: string | number | null; Codigo_cliente: string | number | null; Importe_bruto: string | number; Importe_descuento: string | number }>(
@@ -2270,6 +2304,7 @@ async function monthlyInsurers(from: string, to: string, names: Record<string, s
   }
   return {
     bySeguro: [...clients.entries()].map(([name, set]) => ({ name, count: set.size })).sort((a, b) => b.count - a.count),
+    clientsBySeguro: [...clients.entries()].map(([name, set]) => ({ name, clients: [...set] })),
     descPorSeguro: [...disc.entries()].map(([name, d]) => ({ name, pct: d.bruto ? Math.round((d.desc / d.bruto) * 100) : 0 })).sort((a, b) => b.pct - a.pct),
     eurPorSeguro: [...disc.entries()].map(([name, d]) => ({ name, eur: Math.round(d.desc * 100) / 100 })).filter((s) => s.eur > 0).sort((a, b) => b.eur - a.eur),
   };
@@ -2371,13 +2406,21 @@ function ventaDesconto(v: VisualVenta): number {
   return num(v.Importe_descuento_lineas) + num(v.Importe_DescuentoGlobal);
 }
 
-/** Vendas COM SEGURO agregadas por entidade (menu Entidades). */
+/**
+ * Vendas COM SEGURO agregadas por entidade (menu Entidades).
+ * Mostra SÓ as entidades com nome no Admin — a cauda de códigos por identificar
+ * (reembolso ao paciente, 1-2 faturas) fica escondida. Salvaguarda: se NENHUM
+ * código estiver nomeado (ex.: instalação nova), mostra todos para o menu não
+ * ficar vazio (aí caem no rótulo "Seguro «código»").
+ */
 export async function insurerEntities(from: string, to: string, names: Record<string, string>): Promise<InsurerEntityRow[]> {
   const [ventas, seguros] = await Promise.all([fetchVentas(from, to), seguroPorVenta(from, to)]);
+  const onlyNamed = Object.values(names).some((n) => n?.trim());
   const agg = new Map<string, { vendas: number; total: number; desc: number }>();
   for (const v of ventas) {
     if (v.Es_presupuesto === "S") continue;
     const cod = seguros.get(Number(v.Codigo)); if (!cod) continue;
+    if (onlyNamed && !names[cod]?.trim()) continue; // esconde a cauda sem nome
     const desc = ventaDesconto(v);
     const a = agg.get(cod) ?? { vendas: 0, total: 0, desc: 0 };
     a.vendas += 1;
@@ -2508,7 +2551,7 @@ export async function insurerDiscounts(from: string, to: string, names: Record<s
 
 /** Relatório MENSAL completo (réplica do template). */
 export async function monthlyReport(from: string, to: string, saudeCodes: Iterable<string> = [], aseguradoraNames: Record<string, string> = {}): Promise<MonthlyReport> {
-  const [ventas, presupuestos, articles, classMap, providers, monthCompare, yearCompare, newClients, insurers, boughtQty] = await Promise.all([
+  const [ventas, presupuestos, articles, classMap, providers, monthCompare, yearCompare, newClients, insurers, boughtQty, noArtByClase] = await Promise.all([
     fetchVentas(from, to),
     fetchVentas(from, to, true).then((all) => all.filter((v) => v.Es_presupuesto === "S")),
     articleIndexForRange(from, to),
@@ -2519,6 +2562,7 @@ export async function monthlyReport(from: string, to: string, saudeCodes: Iterab
     monthlyNewClients(from, to),
     monthlyInsurers(from, to, aseguradoraNames),
     purchaseQtyByArticle(from, to).catch(() => new Map<string, number>()),
+    purchaseNoArticleQtyByClass(from, to).catch(() => new Map<string, number>()),
   ]);
   // Compras por TIPO (réplica do template "COMPRAS MENSAIS"): unidades RECECIONADAS
   // por categoria de produto (ARO/SOL/LENTES/LC). Classifica cada artigo comprado
@@ -2528,6 +2572,13 @@ export async function monthlyReport(from: string, to: string, saudeCodes: Iterab
   for (const [code, qty] of boughtQty) {
     const cat = purchasedArticles.get(code)?.category;
     const label = cat === "armacoes" ? "ARO" : cat === "oculos_sol" ? "SOL" : cat === "lentes_oftalmicas" ? "LENTES" : cat === "lentes_contacto" ? "LC" : null;
+    if (label) comprasByTipo.set(label, (comprasByTipo.get(label) ?? 0) + qty);
+  }
+  // Lentes de lab e LC de encomenda entram SEM artigo → classificam-se pela classe
+  // da linha de venda a que ligam (senão as compras de lentes oftálmicas dão 0).
+  for (const [clase, qty] of noArtByClase) {
+    const cat = categoryFromClase(clase);
+    const label = cat === "lentes_oftalmicas" ? "LENTES" : cat === "lentes_contacto" ? "LC" : null;
     if (label) comprasByTipo.set(label, (comprasByTipo.get(label) ?? 0) + qty);
   }
   const saude = new Set([...saudeCodes].map((c) => norm13(c)).filter(Boolean));
@@ -2598,6 +2649,13 @@ export async function monthlyReport(from: string, to: string, saudeCodes: Iterab
   const prev = yearCompare.find((y) => y.year === baseYear - 1)?.comIva ?? 0;
   const curr = yearCompare.find((y) => y.year === baseYear)?.comIva ?? 0;
 
+  // P3 "COM SEGURO" = clientes NOVOS do período que têm seguro, por seguradora
+  // (interseção dos códigos dos clientes novos com os das faturas com seguro).
+  const bySeguroNovos = insurers.clientsBySeguro
+    .map(({ name, clients }) => ({ name, count: clients.filter((c) => newClients.codes.has(c)).length }))
+    .filter((s) => s.count > 0)
+    .sort((a, b) => b.count - a.count);
+
   return {
     from, to, sellers, sellerDiscount, valorPorTipo,
     top3: sellers.slice(0, 3).map((s) => ({ name: s.name, sales: s.sales, pct: s.pct })),
@@ -2615,7 +2673,7 @@ export async function monthlyReport(from: string, to: string, saudeCodes: Iterab
     ranking: sellers.filter((s) => s.pct > 0).map((s) => ({ name: s.name, pct: s.pct })),
     monthCompare, yearCompare,
     yearImprovementPct: prev ? Math.round(((curr - prev) / prev) * 1000) / 10 : 0,
-    clientesNovos: { total: newClients.total, byAge: newClients.byAge, bySeguro: insurers.bySeguro },
+    clientesNovos: { total: newClients.total, byAge: newClients.byAge, bySeguro: bySeguroNovos },
     descPorSeguro: insurers.descPorSeguro,
     eurPorSeguro: insurers.eurPorSeguro,
     comprasPorTipo: [...comprasByTipo.entries()].map(([tipo, qty]) => ({ tipo, qty })),
