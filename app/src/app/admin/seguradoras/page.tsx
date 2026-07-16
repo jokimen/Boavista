@@ -40,6 +40,7 @@ async function SeguradorasContent() {
       count: info.get(codigo)?.count ?? 0,
       sampleBenef: info.get(codigo)?.sampleBenef ?? "",
       sampleClient: info.get(codigo)?.sampleClient ?? "",
+      suggestion: info.get(codigo)?.suggestion ?? "",
     }));
 
   return <SeguradoraConfigForm codes={codes} config={config} />;

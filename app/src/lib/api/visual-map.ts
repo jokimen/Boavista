@@ -1810,9 +1810,49 @@ interface VisualFacturaCliente {
   Nombre_cliente?: string | null;
 }
 
-export interface AseguradoraCodeInfo { codigo: string; count: number; sampleBenef: string; sampleClient: string }
+export interface AseguradoraCodeInfo { codigo: string; count: number; sampleBenef: string; sampleClient: string; suggestion: string }
 
-/** Códigos de seguradora em uso (FacturasClientes) num intervalo, com exemplos. */
+/**
+ * Palavras-chave que identificam INEQUIVOCAMENTE uma SEGURADORA num `Nombre_cliente`
+ * (as faturas de reembolso são emitidas em nome da seguradora — MULTICARE, ALLIANZ, …).
+ * Conservador de propósito: NÃO inclui sufixos genéricos (`S.A.`/`LDA`) porque o apelido
+ * português "Sá" (escrito "SA") daria falsos positivos em nomes de pessoas.
+ */
+const ASEGURADORA_NAME_RE =
+  /\b(SEGUROS|MULTICARE|MEDIS|ADVANCECARE|SAFECARE|HEALTHCARE|AEGON|SANTANDER|ADSE|SAMS|SAVIDA|SÃVIDA|ALLIANZ|FIDELIDADE|TRANQUILIDADE|AGEAS|GENERALI|LUSITANIA|LUSITÂNIA|VICTORIA|VICTÓRIA|OCIDENTAL|MAPFRE|ZURICH|CIGNA|MGEN|MUTUELLE|MUTUA|MÚTUA|MONTEPIO|MEDICARE|MUDUM|RNA|COMPANHIA DE SEGUROS)\b/i;
+
+/** Token único, todo em maiúsculas (ex.: "RAR") — organização, não pessoa. */
+const SINGLE_ORG_RE = /^[A-ZÀ-Ú][A-ZÀ-Ú&.\-]{2,5}$/;
+
+/**
+ * Nomes CONFIRMADOS pelo dono (2026-07-16, abrindo as faturas no Visual) para
+ * códigos que a heurística não consegue derivar — seguradoras de PURO reembolso
+ * ao paciente, em que o `Nombre_cliente` é sempre a pessoa e a seguradora nunca
+ * aparece. Identificadas pelo formato do nº de beneficiário: ADSE=9 díg+sufixo
+ * OA/SS/AP; Advancecare=8 díg (cartão de cidadão); SAMS=10 díg `00…00`.
+ * Têm prioridade sobre o palpite automático.
+ */
+const KNOWN_ASEGURADORA_NAMES: Record<string, string> = {
+  "11": "ADSE",
+  "20": "Advancecare",
+  "71": "SAMS / Quadros",
+};
+
+/**
+ * Escolhe, de um mapa nome→freq, o melhor palpite para o nome da seguradora.
+ * Regra CONSERVADORA (evitar falsos positivos): só nomes com palavra-chave de
+ * seguradora, ou um token único em maiúsculas que se repita bastante (≥4 faturas).
+ * Códigos de puro reembolso ao paciente (cliente = pessoa) ficam sem sugestão.
+ */
+function guessAseguradoraName(names: Map<string, number>): string {
+  if (names.size === 0) return "";
+  const cand = [...names.entries()]
+    .filter(([n, c]) => ASEGURADORA_NAME_RE.test(n) || (SINGLE_ORG_RE.test(n) && c >= 4))
+    .sort((a, b) => b[1] - a[1]);
+  return cand[0]?.[0] ?? "";
+}
+
+/** Códigos de seguradora em uso (FacturasClientes) num intervalo, com exemplos e sugestão de nome. */
 export async function aseguradoraCodesInUse(from: string, to: string): Promise<AseguradoraCodeInfo[]> {
   const filter = [dateRangeFilter("Fecha", new Date(from), new Date(to)), centroFilter()].filter(Boolean).join(" and ");
   const rows = await selectAll<VisualFacturaCliente>(
@@ -1820,18 +1860,23 @@ export async function aseguradoraCodesInUse(from: string, to: string): Promise<A
     { fields: ["Codigo", "Centro", "Fecha", "Codigo_aseguradora", "NumeroBefeficiario", "Nombre_cliente"], filter },
     1000,
   ).catch((e) => { console.error("aseguradoraCodesInUse falhou:", e instanceof Error ? e.message : e); return [] as VisualFacturaCliente[]; });
-  const m = new Map<string, { count: number; benef: string; client: string }>();
+  const m = new Map<string, { count: number; benef: string; client: string; names: Map<string, number> }>();
   for (const r of rows) {
     const c = String(r.Codigo_aseguradora ?? "").trim();
     if (!c || c === "0") continue;
-    const cur = m.get(c) ?? { count: 0, benef: "", client: "" };
+    const cur = m.get(c) ?? { count: 0, benef: "", client: "", names: new Map<string, number>() };
     cur.count++;
     if (!cur.benef && r.NumeroBefeficiario != null) cur.benef = String(r.NumeroBefeficiario).trim();
     if (!cur.client && r.Nombre_cliente) cur.client = String(r.Nombre_cliente).trim();
+    const nm = String(r.Nombre_cliente ?? "").trim();
+    if (nm) cur.names.set(nm, (cur.names.get(nm) ?? 0) + 1);
     m.set(c, cur);
   }
   return [...m.entries()]
-    .map(([codigo, x]) => ({ codigo, count: x.count, sampleBenef: x.benef, sampleClient: x.client }))
+    .map(([codigo, x]) => ({
+      codigo, count: x.count, sampleBenef: x.benef, sampleClient: x.client,
+      suggestion: KNOWN_ASEGURADORA_NAMES[codigo] ?? guessAseguradoraName(x.names),
+    }))
     .sort((a, b) => b.count - a.count);
 }
 

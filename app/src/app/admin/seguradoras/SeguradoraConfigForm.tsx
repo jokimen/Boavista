@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Save } from "lucide-react";
+import { Save, Wand2 } from "lucide-react";
 import type { AseguradoraConfig } from "@/lib/aseguradoras/constants";
 
-type Code = { codigo: string; count: number; sampleBenef?: string; sampleClient?: string };
-type Row = { codigo: string; nome: string; ativo: boolean; count: number; sampleBenef: string; sampleClient: string };
+type Code = { codigo: string; count: number; sampleBenef?: string; sampleClient?: string; suggestion?: string };
+type Row = { codigo: string; nome: string; ativo: boolean; count: number; sampleBenef: string; sampleClient: string; suggestion: string };
 
 export function SeguradoraConfigForm({ codes, config }: { codes: Code[]; config: AseguradoraConfig }) {
   const router = useRouter();
@@ -18,6 +18,7 @@ export function SeguradoraConfigForm({ codes, config }: { codes: Code[]; config:
       count: c.count,
       sampleBenef: c.sampleBenef ?? "",
       sampleClient: c.sampleClient ?? "",
+      suggestion: c.suggestion ?? "",
     })),
   );
   const [saving, setSaving] = useState(false);
@@ -25,6 +26,12 @@ export function SeguradoraConfigForm({ codes, config }: { codes: Code[]; config:
 
   const set = (codigo: string, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.codigo === codigo ? { ...r, ...patch } : r)));
+
+  /** Preenche o nome de todas as linhas AINDA vazias com a respetiva sugestão. */
+  const applyAllSuggestions = () =>
+    setRows((rs) => rs.map((r) => (!r.nome.trim() && r.suggestion ? { ...r, nome: r.suggestion } : r)));
+
+  const pendingSuggestions = rows.filter((r) => !r.nome.trim() && r.suggestion).length;
 
   async function save() {
     setSaving(true); setMsg(null);
@@ -47,15 +54,26 @@ export function SeguradoraConfigForm({ codes, config }: { codes: Code[]; config:
     <div className="rounded-xl bg-bg-card border border-border p-5 space-y-4 max-w-3xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-xs text-text-muted max-w-2xl">
-          A API do Visual só dá o <strong>código</strong> da seguradora, não o nome. Para te ajudar a identificá-la,
-          mostro um <strong>nº de beneficiário</strong> e um <strong>cliente</strong> de exemplo de cada código —
-          abre essa venda/cliente no Visual (ou reconhece pelo formato do beneficiário) e escreve o nome real
-          (Multicare, Medis…). Os que ficarem sem nome aparecem nos relatórios como “Seguro [código]”.
+          A API do Visual só dá o <strong>código</strong> da seguradora, não o nome. Mas nas faturas de
+          <strong> reembolso</strong> o cliente é a própria seguradora, por isso sugerimos o
+          <strong> nome de cliente dominante</strong> de cada código (Multicare, Medis, Allianz…). Confirma a
+          sugestão (chip azul) ou usa “Aplicar sugestões”. Os códigos que só faturam ao paciente não têm sugestão —
+          usa o <strong>nº de beneficiário</strong>/<strong>cliente</strong> de exemplo para os identificar no Visual.
+          Os que ficarem sem nome aparecem nos relatórios como “Seguro [código]”.
         </p>
-        <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 bg-[#3b82f6] hover:bg-[#2563eb] disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg shrink-0">
-          <Save size={15} /> {saving ? "A guardar…" : "Guardar"}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {pendingSuggestions > 0 && (
+            <button onClick={applyAllSuggestions} type="button"
+              className="flex items-center gap-2 bg-bg-elevated hover:bg-bg-card-hover border border-border text-text-primary text-sm font-medium px-3 py-2 rounded-lg"
+              title="Preenche os nomes vazios com o nome de cliente dominante de cada código">
+              <Wand2 size={15} /> Aplicar sugestões ({pendingSuggestions})
+            </button>
+          )}
+          <button onClick={save} disabled={saving}
+            className="flex items-center gap-2 bg-[#3b82f6] hover:bg-[#2563eb] disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg">
+            <Save size={15} /> {saving ? "A guardar…" : "Guardar"}
+          </button>
+        </div>
       </div>
       {msg && <p className={`text-xs ${msg.type === "ok" ? "text-[#10b981]" : "text-[#ef4444]"}`}>{msg.text}</p>}
 
@@ -85,6 +103,13 @@ export function SeguradoraConfigForm({ codes, config }: { codes: Code[]; config:
                     <input value={r.nome} onChange={(e) => set(r.codigo, { nome: e.target.value })}
                       placeholder="ex.: Multicare"
                       className="w-full bg-bg-elevated border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:border-[#3b82f6] outline-none" />
+                    {r.suggestion && r.nome.trim() !== r.suggestion && (
+                      <button type="button" onClick={() => set(r.codigo, { nome: r.suggestion })}
+                        title="Usar esta sugestão (nome de cliente dominante)"
+                        className="mt-1 inline-flex items-center gap-1 max-w-full text-[11px] text-[#3b82f6] hover:underline truncate">
+                        <Wand2 size={11} className="shrink-0" /> <span className="truncate">{r.suggestion}</span>
+                      </button>
+                    )}
                   </td>
                   <td className="py-1.5 px-2">
                     <input type="checkbox" checked={r.ativo} onChange={(e) => set(r.codigo, { ativo: e.target.checked })}
