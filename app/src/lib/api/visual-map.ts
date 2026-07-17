@@ -1954,6 +1954,14 @@ async function ytdTotals(to: string, nYears: number): Promise<{ year: number; co
 const OPTICA_SALES_TEAM = new Set(["ALDINA", "ELISA", "FATIMA", "GISLAINE", "MARTA", "JOSE", "NUNO", "VITOR"]);
 const normName = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim();
 
+// Utilizadores do Visual que NUNCA entram nos cálculos de NENHUM relatório PDF
+// (contas de sistema/gestão — Admin, Perpétuo e o José João, cujo `Usuario` é JOAO —,
+// não são vendedores reais). ⚠️ NÃO confundir com o `JOSE`, que é vendedor de balcão
+// e continua nos relatórios. Decisão do dono. Comparação por nome normalizado.
+const REPORT_EXCLUDED_USERS = new Set(["PERPETUO", "JOAO", "ADMIN"]);
+const isExcludedReportUser = (u: string | null | undefined): boolean =>
+  REPORT_EXCLUDED_USERS.has(normName(u || "").replace(/\s+/g, " "));
+
 export interface SectorTickets {
   /** Ticket médio (€) das vendas da equipa de BALCÃO (OPTICA_SALES_TEAM). */
   balcao: number;
@@ -1993,7 +2001,8 @@ export async function weeklyOpticaReport(from: string, to: string): Promise<Week
   // Equipa. (Antes somava só as linhas de categoria óptica → não batia com o total
   // real de cada vendedor, ex.: Nuno 14.960,67.) `fetchVentas` já exclui orçamentos
   // e abonos (isRealSale), por isso cada documento conta 1 venda.
-  const ventas = await fetchVentas(from, to);
+  // Exclui os utilizadores de sistema/gestão (Admin, Perpétuo, José João).
+  const ventas = (await fetchVentas(from, to)).filter((v) => !isExcludedReportUser(v.Usuario));
   const bySeller = new Map<string, { sales: number; count: number }>();
   for (const v of ventas) {
     const seller = v.Usuario || "—";
@@ -2120,7 +2129,8 @@ async function fetchClinicRevisions(clients: string[], kind: "lentes" | "lentill
  * sem match ou de receita externa ficam de fora. + peso por setor.
  */
 export async function weeklyClinicaReport(from: string, to: string): Promise<WeeklyClinicaReport> {
-  const ventas = await fetchVentas(from, to);
+  // Exclui os utilizadores de sistema/gestão (Admin, Perpétuo, José João).
+  const ventas = (await fetchVentas(from, to)).filter((v) => !isExcludedReportUser(v.Usuario));
 
   // Todas as vendas reais do período; a GRADUAÇÃO das linhas (a seguir) é que decide
   // quais têm lente/LC e ligam a uma revisão. Creditado ao optometrista: o TOTAL da
@@ -2181,7 +2191,7 @@ export async function weeklyClinicaReport(from: string, to: string): Promise<Wee
     if (!cand.length) continue;
     cand.sort((a, b) => b.score - a.score || b.t - a.t); // + olhos coincidentes, depois mais recente
     const best = cand[0];
-    if (!best.nm) continue; // a revisão que melhor casa é de receita externa → exclui
+    if (!best.nm || isExcludedReportUser(best.nm)) continue; // receita externa ou utilizador de sistema → exclui
     const cur = opt.get(best.nm) ?? { count: 0, fat: 0, fatOpto: 0, fatCl: 0 };
     cur.count++; cur.fat += s.net;
     if (sk.L.size) cur.fatOpto += s.net; // € de vendas com óculos graduados
@@ -2552,8 +2562,10 @@ export async function insurerDiscounts(from: string, to: string, names: Record<s
 /** Relatório MENSAL completo (réplica do template). */
 export async function monthlyReport(from: string, to: string, saudeCodes: Iterable<string> = [], aseguradoraNames: Record<string, string> = {}): Promise<MonthlyReport> {
   const [ventas, presupuestos, articles, classMap, providers, monthCompare, yearCompare, newClients, insurers, boughtQty, noArtByClase] = await Promise.all([
-    fetchVentas(from, to),
-    fetchVentas(from, to, true).then((all) => all.filter((v) => v.Es_presupuesto === "S")),
+    // Exclui os utilizadores de sistema/gestão (Admin, Perpétuo, José João) de TODAS
+    // as agregações a jusante (vendedores, valor por tipo, orçamentos, ticket, etc.).
+    fetchVentas(from, to).then((vs) => vs.filter((v) => !isExcludedReportUser(v.Usuario))),
+    fetchVentas(from, to, true).then((all) => all.filter((v) => v.Es_presupuesto === "S" && !isExcludedReportUser(v.Usuario))),
     articleIndexForRange(from, to),
     lineClasses(from, to),
     lineProviders(from, to),
