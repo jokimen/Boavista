@@ -81,6 +81,8 @@ export interface KpiData {
   targetPct?: number;
   /** Id de explicação (ChartInfo) — mostra um "i" que abre como se calcula o KPI. */
   infoId?: string;
+  /** Sub-valores mostrados por baixo do valor principal (ex.: Balcão vs Clínica). */
+  breakdown?: { label: string; value: number | string; unit?: "€" | "%" | "" }[];
 }
 
 // ─── Sales ───────────────────────────────────────────────────────────────────

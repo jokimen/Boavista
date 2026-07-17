@@ -98,6 +98,16 @@ export function KpiCard({ data, onClick, className }: KpiCardProps) {
           {data.changePeriod && (
             <div className="mt-0.5 text-xs text-text-muted">vs {data.changePeriod}</div>
           )}
+          {data.breakdown && data.breakdown.length > 0 && (
+            <div className="mt-1.5 flex flex-col gap-0.5">
+              {data.breakdown.map((b, i) => (
+                <div key={i} className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className="text-text-muted">{b.label}</span>
+                  <span className="font-semibold text-text-secondary">{formatValue(b.value, b.unit)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {data.sparkline && data.sparkline.length > 1 && (
           <div className="w-24 shrink-0">

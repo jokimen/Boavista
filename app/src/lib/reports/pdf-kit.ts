@@ -174,7 +174,9 @@ export function vBarChart(doc: jsPDF, data: BarDatum[], opts: { x?: number; y?: 
     // rótulo abaixo do eixo
     text(doc, INK); doc.setFontSize(labelSize);
     if (horizontal) doc.text(d.label.toUpperCase(), cx, y + h + (n <= 6 ? 5 : 4), { align: "center" });
-    else doc.text(d.label.toUpperCase(), cx + 1.6, y + h + 2, { angle: 90, align: "right" });
+    // Rótulo rodado: pendura ABAIXO do eixo (lê-se de cima p/ baixo), sem invadir
+    // o gráfico — angle 270 estende o texto para baixo; baseline middle centra-o na banda.
+    else doc.text(d.label.toUpperCase(), cx, y + h + 2.5, { angle: 270, align: "left", baseline: "middle" });
   });
   // rótulo do eixo Y (rotacionado à esquerda)
   if (opts.yLabel) {

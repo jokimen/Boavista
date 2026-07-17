@@ -8,7 +8,7 @@ import { SalesLineChart } from "@/components/charts/SalesLineChart";
 import { CategoryDrilldown } from "@/components/charts/CategoryDrilldown";
 import { ChartInfo } from "@/components/charts/ChartInfo";
 import { TargetsPanel } from "@/components/kpi/TargetsPanel";
-import { fetchSalesSummary, fetchSalesSummaryLight, fetchSalesTrend, fetchSalesByCategory, fetchAlerts, fetchEmployees } from "@/lib/api/adapter";
+import { fetchSalesSummary, fetchSalesSummaryLight, fetchSalesTicketsBySector, fetchSalesTrend, fetchSalesByCategory, fetchAlerts, fetchEmployees } from "@/lib/api/adapter";
 import { resolveDateRange, resolvePreviousRange, type DashboardFilters } from "@/lib/filters/range";
 import { getGlobalFilters } from "@/lib/filters/cookie";
 import { getSaudeOcularCodes } from "@/lib/targets/store";
@@ -79,18 +79,23 @@ function KpiUnavailable() {
 
 // KPIs de VENDAS — só REST (rápido), com comparação leve ao período anterior.
 async function SalesKpis({ from, to, prev }: { from: string; to: string; prev: { from: string; to: string; label: string } }) {
-  let cur, prv;
+  let cur, prv, tkt;
   try {
-    [cur, prv] = await Promise.all([
+    [cur, prv, tkt] = await Promise.all([
       fetchSalesSummaryLight(from, to),
       fetchSalesSummaryLight(prev.from, prev.to),
+      fetchSalesTicketsBySector(from, to),
     ]);
   } catch {
     return <>{Array.from({ length: 4 }).map((_, i) => <KpiUnavailable key={i} />)}</>;
   }
   const kpis = [
     { label: "Vendas", value: cur.total_sales, unit: "€" as const, infoId: "kpi-vendas", change: pctChange(cur.total_sales, prv.total_sales), changePeriod: prev.label },
-    { label: "Ticket Médio", value: cur.avg_ticket, unit: "€" as const, infoId: "kpi-ticket", change: pctChange(cur.avg_ticket, prv.avg_ticket), changePeriod: prev.label },
+    { label: "Ticket Médio", value: cur.avg_ticket, unit: "€" as const, infoId: "kpi-ticket", change: pctChange(cur.avg_ticket, prv.avg_ticket), changePeriod: prev.label,
+      breakdown: [
+        { label: "Balcão", value: tkt.balcao, unit: "€" as const },
+        { label: "Clínica", value: tkt.clinica, unit: "€" as const },
+      ] },
     { label: "Nº de Vendas", value: cur.num_sales, unit: "" as const, infoId: "kpi-num-vendas", change: pctChange(cur.num_sales, prv.num_sales), changePeriod: prev.label },
     { label: "Tx. Conversão", value: cur.conversion_rate, unit: "%" as const, infoId: "kpi-conversao", change: pctChange(cur.conversion_rate, prv.conversion_rate), changePeriod: prev.label },
   ];
