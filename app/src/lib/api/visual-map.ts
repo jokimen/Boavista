@@ -2267,25 +2267,28 @@ function saudeTipo(desc: string): string {
 }
 const SAUDE_TIPOS = ["LAGRIMAS", "LIQ MANUT", "PERÓXIDO", "SUPLEMENTOS", "OUTROS"];
 
-/** Clientes novos do mês (VX_CLIENTES por FECHA_ALTA): faixa etária. */
-async function monthlyNewClients(from: string, to: string): Promise<{ total: number; byAge: { label: string; count: number }[]; codes: Set<string> }> {
-  if (!isOdataConfigured()) return { total: 0, byAge: [], codes: new Set() };
+const NEW_CLIENT_AGE_BUCKETS = ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80-89", "90-99"];
+
+/** Clientes dados de ALTA no mês (VX_CLIENTES por FECHA_ALTA): código + faixa etária.
+ *  NÃO filtra — devolve TODOS os altas; o caller (`monthlyReport`) fica com os que têm
+ *  VENDA real (exclui os criados só para orçamento). Idade calculada à data da alta. */
+async function monthlyNewClients(from: string, to: string): Promise<{ clients: { code: string; ageIdx: number | null }[]; buckets: string[] }> {
+  if (!isOdataConfigured()) return { clients: [], buckets: NEW_CLIENT_AGE_BUCKETS };
   const p = (n: number) => String(n).padStart(2, "0");
   const dt = (s: string) => { const d = new Date(s); return `datetime'${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T00:00:00'`; };
   const filter = `CENTRO eq 1 and FECHA_ALTA ge ${dt(from)} and FECHA_ALTA lt ${dt(to)}`;
-  const rows = await odataSelect<{ CODIGO: string | number; FECHA_NACIMIENTO: string | null }>("VX_CLIENTES", { filter, select: ["CODIGO", "FECHA_NACIMIENTO", "FECHA_ALTA", "CENTRO"] }).catch(() => []);
-  const buckets = ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80-89", "90-99"];
-  const counts = new Array(buckets.length).fill(0);
-  const now = Date.now();
-  const codes = new Set<string>();
-  for (const r of rows) {
-    codes.add(String(r.CODIGO ?? "").trim());
-    if (!r.FECHA_NACIMIENTO) continue;
-    const age = Math.floor((now - new Date(r.FECHA_NACIMIENTO).getTime()) / (365.25 * 86_400_000));
-    const idx = Math.min(Math.floor(age / 10), buckets.length - 1);
-    if (idx >= 0) counts[idx]++;
-  }
-  return { total: rows.length, byAge: buckets.map((label, i) => ({ label, count: counts[i] })), codes };
+  const rows = await odataSelect<{ CODIGO: string | number; FECHA_NACIMIENTO: string | null; FECHA_ALTA: string | null }>("VX_CLIENTES", { filter, select: ["CODIGO", "FECHA_NACIMIENTO", "FECHA_ALTA", "CENTRO"] }).catch(() => []);
+  const clients = rows.map((r) => {
+    let ageIdx: number | null = null;
+    if (r.FECHA_NACIMIENTO) {
+      // Idade à data da ALTA (não a de hoje) — estável para meses passados.
+      const ref = r.FECHA_ALTA ? new Date(r.FECHA_ALTA).getTime() : Date.now();
+      const age = Math.floor((ref - new Date(r.FECHA_NACIMIENTO).getTime()) / (365.25 * 86_400_000));
+      if (age >= 0) ageIdx = Math.min(Math.floor(age / 10), NEW_CLIENT_AGE_BUCKETS.length - 1);
+    }
+    return { code: String(r.CODIGO ?? "").trim(), ageIdx };
+  });
+  return { clients, buckets: NEW_CLIENT_AGE_BUCKETS };
 }
 
 /** Seguros do mês (REST FacturasClientes): clientes por seguradora, % desc médio
@@ -2661,10 +2664,21 @@ export async function monthlyReport(from: string, to: string, saudeCodes: Iterab
   const prev = yearCompare.find((y) => y.year === baseYear - 1)?.comIva ?? 0;
   const curr = yearCompare.find((y) => y.year === baseYear)?.comIva ?? 0;
 
-  // P3 "COM SEGURO" = clientes NOVOS do período que têm seguro, por seguradora
+  // Clientes NOVOS = dados de alta no mês E com VENDA real no mês. Exclui os que
+  // foram criados só para um ORÇAMENTO (sem compra) — decisão do dono. `ventas` já
+  // são só vendas reais (isRealSale, sem orçamentos). Código de cliente comparável
+  // entre VX_CLIENTES.CODIGO e Ventas.Codigo_cliente (mesma BD, string aparada).
+  const realSaleClients = new Set(ventas.map((v) => String(v.Codigo_cliente ?? "").trim()).filter(Boolean));
+  const novos = newClients.clients.filter((c) => c.code && realSaleClients.has(c.code));
+  const newCodes = new Set(novos.map((c) => c.code));
+  const ageCounts = new Array(newClients.buckets.length).fill(0);
+  for (const c of novos) if (c.ageIdx != null) ageCounts[c.ageIdx]++;
+  const byAge = newClients.buckets.map((label, i) => ({ label, count: ageCounts[i] }));
+
+  // P3 "COM SEGURO" = clientes NOVOS (com venda) que têm seguro, por seguradora
   // (interseção dos códigos dos clientes novos com os das faturas com seguro).
   const bySeguroNovos = insurers.clientsBySeguro
-    .map(({ name, clients }) => ({ name, count: clients.filter((c) => newClients.codes.has(c)).length }))
+    .map(({ name, clients }) => ({ name, count: clients.filter((c) => newCodes.has(c)).length }))
     .filter((s) => s.count > 0)
     .sort((a, b) => b.count - a.count);
 
@@ -2685,7 +2699,7 @@ export async function monthlyReport(from: string, to: string, saudeCodes: Iterab
     ranking: sellers.filter((s) => s.pct > 0).map((s) => ({ name: s.name, pct: s.pct })),
     monthCompare, yearCompare,
     yearImprovementPct: prev ? Math.round(((curr - prev) / prev) * 1000) / 10 : 0,
-    clientesNovos: { total: newClients.total, byAge: newClients.byAge, bySeguro: bySeguroNovos },
+    clientesNovos: { total: novos.length, byAge, bySeguro: bySeguroNovos },
     descPorSeguro: insurers.descPorSeguro,
     eurPorSeguro: insurers.eurPorSeguro,
     comprasPorTipo: [...comprasByTipo.entries()].map(([tipo, qty]) => ({ tipo, qty })),
